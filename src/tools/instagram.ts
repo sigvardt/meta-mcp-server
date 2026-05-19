@@ -10,6 +10,22 @@ import {
   MetaPaginatedResponse,
 } from "../types.js";
 
+const MODERN_TOTAL_VALUE_METRICS = [
+  "accounts_engaged",
+  "total_interactions",
+  "likes",
+  "comments",
+  "shares",
+  "saves",
+  "profile_links_taps",
+  "follower_demographics",
+] as const;
+
+const MODERN_TOTAL_VALUE_METRIC_SET = new Set<string>(MODERN_TOTAL_VALUE_METRICS);
+
+const IG_MEDIA_CHILD_FIELDS = "id,media_type,media_url,permalink,thumbnail_url,timestamp,username";
+const IG_HASHTAG_MEDIA_FIELDS = "id,media_type,media_url,permalink,caption,like_count,comments_count,timestamp";
+
 export function registerInstagramTools(server: McpServer, client: MetaApiClient): void {
   // ─── List Instagram Accounts ──────────────────────────────────────────────
   server.registerTool(
@@ -634,6 +650,7 @@ Note: demographic metrics require 100+ followers. online_followers only availabl
             .default(["reach", "accounts_engaged", "total_interactions", "likes", "comments", "shares", "saves", "profile_links_taps", "account_repost_count"])
             .describe("Metric names (see description for full list)"),
           period: z.enum(["day", "week", "days_28", "month", "lifetime"]).default("day"),
+          metric_type: z.enum(["time_series", "total_value"]).optional().describe("Required for modern metrics: accounts_engaged, total_interactions, likes, comments, shares, saves, profile_links_taps, follower_demographics. Defaults to time_series for legacy metrics."),
           since: z.string().optional(),
           until: z.string().optional(),
           breakdown: z.enum(["age", "city", "country", "gender"]).optional().describe("For demographic metrics only"),
@@ -648,12 +665,31 @@ Note: demographic metrics require 100+ followers. online_followers only availabl
         openWorldHint: false,
       },
     },
-    async ({ ig_account_id, metrics, period, since, until, breakdown, timeframe, response_format }) => {
+    async ({ ig_account_id, metrics, period, metric_type, since, until, breakdown, timeframe, response_format }) => {
       try {
+        const modernMetrics = Array.from(new Set(metrics.filter((metric) => MODERN_TOTAL_VALUE_METRIC_SET.has(metric))));
+        const legacyMetrics = Array.from(new Set(metrics.filter((metric) => !MODERN_TOTAL_VALUE_METRIC_SET.has(metric))));
+
+        if (modernMetrics.length > 0 && legacyMetrics.length > 0) {
+          const message = `Cannot mix metric families in one call. Modern metrics (${modernMetrics.join(", ")}) require metric_type=total_value; legacy metrics (${legacyMetrics.join(", ")}) require time_series. Split into two calls.`;
+          return {
+            content: [{ type: "text" as const, text: message }],
+            structuredContent: { code: "IG_INSIGHTS_MIXED_METRIC_FAMILIES", message },
+            isError: true,
+          };
+        }
+
+        let metricTypeHint: string | undefined;
         const params: Record<string, unknown> = {
           metric: metrics.join(","),
           period,
         };
+        if (metric_type) {
+          params.metric_type = metric_type;
+        } else if (modernMetrics.length > 0) {
+          params.metric_type = "total_value";
+          metricTypeHint = `Auto-added metric_type=total_value because modern Instagram account insight metrics (${modernMetrics.join(", ")}) require total_value.`;
+        }
         if (since) params.since = since;
         if (until) params.until = until;
         if (breakdown) params.breakdown = breakdown;
@@ -662,10 +698,13 @@ Note: demographic metrics require 100+ followers. online_followers only availabl
         const data = await client.get<{ data: unknown[] }>(`/${ig_account_id}/insights`, params);
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          return { content: [{ type: "text", text: JSON.stringify(metricTypeHint ? { ...data, hint: metricTypeHint } : data, null, 2) }] };
         }
 
         const lines = [`# Instagram Account Insights`, `**Period**: ${period}`, ""];
+        if (metricTypeHint) {
+          lines.push(`> ${metricTypeHint}`, "");
+        }
         for (const item of data.data as Array<{
           name: string;
           title: string;
@@ -912,7 +951,7 @@ Note: Limited to 30 unique hashtag searches per 7 days per IG account.`,
         // Step 1: Look up hashtag ID
         const hashtagResult = await client.get<{ data: Array<{ id: string }> }>(
           "/ig_hashtag_search",
-          { user_id: ig_account_id, q: hashtag }
+          { user_id: ig_account_id, q: hashtag, fields: "id,name" }
         );
 
         if (!hashtagResult.data?.length) {
@@ -924,7 +963,7 @@ Note: Limited to 30 unique hashtag searches per 7 days per IG account.`,
         // Step 2: Get media
         const data = await client.get<MetaPaginatedResponse<InstagramMedia>>(
           `/${hashtagId}/${edge}`,
-          { user_id: ig_account_id, fields: IG_MEDIA_FIELDS, limit }
+          { user_id: ig_account_id, fields: IG_HASHTAG_MEDIA_FIELDS, limit }
         );
 
         if (!data.data?.length) {
@@ -1252,6 +1291,8 @@ Args:
       title: "Get Instagram Carousel Items",
       description: `Gets individual media items in a carousel/album post.
 
+Carousel children only expose a subset of the parent media fields, so this tool requests the child-safe fields only to avoid Meta's "Field is not available for Carousel children media" error.
+
 Args:
   - media_id (string): Carousel media ID`,
       inputSchema: z
@@ -1266,7 +1307,7 @@ Args:
       try {
         const data = await client.get<{ data: InstagramMedia[] }>(
           `/${media_id}/children`,
-          { fields: IG_MEDIA_FIELDS }
+          { fields: IG_MEDIA_CHILD_FIELDS }
         );
 
         if (!data.data?.length) {
@@ -1884,15 +1925,15 @@ Returns: Message ID.`,
   server.registerTool(
     "meta_get_instagram_broadcast_channels",
     {
-      title: "List Instagram Broadcast Channels",
-      description: `Lists broadcast channels for an Instagram professional account.
+      title: "List Instagram Broadcast Channels (Deprecated)",
+      description: `Deprecated. Broadcast Channels are not exposed by Meta's third-party Instagram APIs.
 
-Broadcast channels enable one-to-many messaging from creators/brands to subscribers.
+This tool remains registered so callers get a structured deprecation signal instead of Meta's (#2500) Unknown path components error.
 
 Args:
   - ig_account_id (string): Instagram account ID
 
-Returns: Channel IDs, names, descriptions, subscriber counts.`,
+Returns: Structured IG_BROADCAST_CHANNELS_DEPRECATED error with the current Meta docs URL.`,
       inputSchema: z
         .object({
           ig_account_id: z.string().describe("Instagram account ID"),
@@ -1901,33 +1942,21 @@ Returns: Channel IDs, names, descriptions, subscriber counts.`,
         .strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ ig_account_id, response_format }) => {
-      try {
-        const data = await client.get<{ data: Array<{ id: string; name: string; description?: string; subscriber_count?: number; created_time?: string }> }>(
-          `/${ig_account_id}/broadcast_channels`,
-          { fields: "id,name,description,subscriber_count,created_time" }
-        );
+    async () => {
+      const message =
+        "meta_get_instagram_broadcast_channels is no longer supported. " +
+        "Meta does not expose a third-party Broadcast Channels Graph endpoint as of 2026-05-19. " +
+        "Replacement: no Broadcast Channels replacement; use Instagram Messaging conversations/messages for supported one-to-one messaging. " +
+        "See https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/.";
 
-        if (!data.data?.length) {
-          return { content: [{ type: "text", text: "No broadcast channels found for this account." }] };
-        }
-
-        if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-        }
-
-        const lines = [`# Broadcast Channels (${data.data.length})`, ""];
-        for (const ch of data.data) {
-          lines.push(`## ${ch.name} (\`${ch.id}\`)`);
-          if (ch.description) lines.push(`- **Description**: ${truncateField(ch.description, 150)}`);
-          if (ch.subscriber_count !== undefined) lines.push(`- **Subscribers**: ${formatNumber(ch.subscriber_count)}`);
-          if (ch.created_time) lines.push(`- **Created**: ${formatDate(ch.created_time)}`);
-          lines.push("");
-        }
-        return { content: [{ type: "text", text: lines.join("\n") }] };
-      } catch (error) {
-        return errorResult(error);
-      }
+      return {
+        content: [{ type: "text" as const, text: `Error [IG_BROADCAST_CHANNELS_DEPRECATED]: ${message}` }],
+        structuredContent: {
+          code: "IG_BROADCAST_CHANNELS_DEPRECATED",
+          message,
+        },
+        isError: true as const,
+      };
     }
   );
 
