@@ -13,3 +13,6 @@ secrets.json
 *.pem
 *.p12
 *.key
+
+# Live acid cleanup journal
+.sisyphus/orphaned-posts.log

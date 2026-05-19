@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <code>200 tools</code> &bull;
+  <code>198 tools</code> &bull;
   <code>7 platforms</code> &bull;
   <code>Graph API v21.0</code>
 </p>
@@ -26,7 +26,7 @@
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#install-with-mcpb">MCPB Download</a> &bull;
   <a href="#what-you-can-do">What You Can Do</a> &bull;
-  <a href="#complete-tool-reference">All 200 Tools</a> &bull;
+  <a href="#complete-tool-reference">All 198 Tools</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
   <a href="#architecture">Architecture</a>
 </p>
@@ -65,7 +65,7 @@ Add to your MCP client config:
 }
 ```
 
-That's it. Your AI assistant now has access to 200 Meta tools.
+That's it. Your AI assistant now has access to 198 Meta tools.
 
 > Need a token? Go to the [Graph API Explorer](https://developers.facebook.com/tools/explorer), select your app, and generate one. See [Configuration](#configuration) for details.
 
@@ -76,6 +76,71 @@ git clone https://github.com/oliverames/meta-mcp-server.git
 cd meta-mcp-server
 npm install && npm run build
 ```
+
+---
+
+## Security & Sandbox
+
+This fork enforces a **business-id allowlist** on every Meta Graph API call. By default it is locked to Dynamic Retail ApS (`833812607571849`); override via the `META_ALLOWED_BUSINESS_IDS` environment variable.
+
+### `META_ALLOWED_BUSINESS_IDS`
+
+Comma-separated list of business IDs the server is allowed to touch. At startup, the `BusinessAuthorizationService` fetches each business's owned/client ad accounts, pages, Instagram accounts, pixels, product catalogs, and system users — those IDs form the allowlist. Subsequent API calls are checked against the allowlist before any HTTP request leaves the process.
+
+```bash
+# Default (Dynamic Retail only):
+# META_ALLOWED_BUSINESS_IDS unset → 833812607571849
+
+# Override with multiple businesses:
+export META_ALLOWED_BUSINESS_IDS=833812607571849,1234567890123456
+```
+
+### `META_AUTH_BOOTSTRAP_MODE`
+
+- `enforce` (default) — fail-closed. Unknown paths return `BUSINESS_AUTH_DENIED` and no HTTP request is sent.
+- `warn` — log-and-allow. Useful for dev/diagnostic runs where you want to see what would be blocked without breaking workflows.
+
+### Bypass paths
+
+Certain Graph endpoints aren't business-scoped and are bypassed by the gate. Curated list in `BYPASS_PATHS` (`src/services/business-authorization.ts`) — e.g. `/me`, `/debug_token`, `/oauth/access_token`. Rationale comments live next to each entry.
+
+### Page-token auto-refresh (190/2069032)
+
+When a cached page token returns Meta error `code:190, subcode:2069032` ("page token expired"), the client transparently refreshes the token once (via the user token) and retries the original call. Only applies to cached page tokens (`MetaApiClient.cachePageToken`); won't fire for user tokens or first-time page-token fetches.
+
+### Meta rate-limit pacing
+
+Meta apps can return development-tier rate limits (`code:80004, subcode:2446079`) or app-level request limits (`code:4` with `Application request limit reached`) during bursty Graph API usage. `MetaApiClient` handles those inside the MCP: Graph calls are paced by default and retried with 30s, 60s, and 120s backoff before surfacing the original Meta error.
+
+```bash
+# Default: wait at least 5 seconds between Graph calls from one client instance.
+export META_RATE_LIMIT_PACE_MS=5000
+
+# Disable pacing, useful only when your app has enough Meta rate-limit headroom.
+export META_RATE_LIMIT_PACE_MS=0
+
+# Default: retry recognized Meta rate limits up to 3 times. Set to 0 to fail fast.
+export META_RATE_LIMIT_RETRIES=3
+```
+
+### Live-acid testing
+
+Real-API integration suite, locked behind a manual trigger:
+
+```bash
+# Read-only suite:
+RUN_LIVE_ACID=1 npm run test:live
+
+# If the journal gets stuck (e.g. a process crash leaves orphaned test posts):
+npm run cleanup:orphans
+```
+
+Safety constraints baked into the harness:
+
+- All live posts use a neutral, auto-delete-marker text phrase.
+- Intended-delete IDs are appended to `.sisyphus/orphaned-posts.log` (gitignored) **before** the destructive call, so a crash mid-delete still leaves a recoverable trail.
+- Successful deletes scrub their entry from the journal.
+- `scripts/cleanup-orphans.mjs` runs at startup to retry any leftover journal entries.
 
 ---
 

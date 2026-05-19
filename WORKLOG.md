@@ -1,5 +1,30 @@
 # Worklog
 
+## 2026-05-19 — v2.0.3: Bug-fix sweep (issue #1) + business-id allowlist hardening
+
+### Hardening: built-in rate-limit retry + pacing
+
+Meta rate limiting (`80004/2446079` dev-tier limits and `code:4` app-level request limits) now lives in `MetaApiClient`, not just the live-acid harness. Every Graph call through the client is paced with `META_RATE_LIMIT_PACE_MS` (default `5000`, `0` disables) and retried with `META_RATE_LIMIT_RETRIES` (default `3`, `0` disables) using 30s, 60s, and 120s backoff. `scripts/live-acid-test.mjs` now just calls MCP tools and keeps its per-call pass/fail reporting; duplicate retry and sleep logic was removed.
+
+**What changed**: Comprehensive sweep of 20 documented Meta-API bugs from [issue #1](https://github.com/oliverames/meta-mcp-server/issues/1) plus a major security hardening: the new `BusinessAuthorizationService` (src/services/business-authorization.ts) now gates every Graph API call against an allowlist seeded from `META_ALLOWED_BUSINESS_IDS` (defaults to Dynamic Retail ApS `833812607571849`). Bootstrap fetches owned/client ad accounts, pages, Instagram accounts, pixels, product catalogs, and system users at startup; subsequent calls are checked path-by-path with a curated `BYPASS_PATHS` allowlist for non-business-scoped routes (e.g. `/me`, `/debug_token`). Bug fixes: rebuilt metric defaults for `meta_get_page_insights`, `meta_get_post_insights`, `meta_get_page_fan_demographics` (removed deprecated metrics like `page_impressions`, `page_engaged_users`, `unique_impressions`); added `metric_type` pass-through to `meta_get_instagram_account_insights`; made `thumbnails` opt-in for `meta_get_page_videos`; reworked `meta_get_promotable_posts` to use `/feed?is_eligible_for_promotion=true`; reworked `meta_get_page_automated_responses` to use `/me/messenger_profile` with PAGE token; fixed `meta_get_pixel_stats` aggregation enum (16 documented values); narrowed `meta_search_instagram_hashtag` hashtag-lookup fields; trimmed `meta_get_instagram_media_children` default fields; fixed `meta_list_offline_event_sets` endpoint; dropped `approximate_count` from `meta_list_saved_audiences`; added `IG_BROADCAST_CHANNELS_DEPRECATED` stub for `meta_get_instagram_broadcast_channels`; deleted `meta_get_pixel_events` (redundant with `meta_get_pixel_stats({aggregation:"event"})`) and `meta_search_places` (Meta retired Place Search for 3rd parties in v8.0). Added narrow 190/2069032 page-token auto-refresh (single retry, cached page tokens only). Added live-acid test harness (`scripts/live-acid-test.mjs` + `scripts/cleanup-orphans.mjs`) gated on `RUN_LIVE_ACID=1` with journal-based orphan-post recovery. Tool count: 200 → 198.
+
+**Decisions made**:
+- **Fork-only, no upstream PR**: This sweep is for our own fork. Upstreaming is out of scope.
+- **Allowlist default**: `833812607571849` (Dynamic Retail ApS / Shameless.dk). Override via `META_ALLOWED_BUSINESS_IDS` (comma-separated business IDs).
+- **Fail-closed bootstrap**: Default behaviour rejects unknown paths. `META_AUTH_BOOTSTRAP_MODE=warn` flips to log-and-allow for dev/diagnostic use.
+- **5s freshness threshold** on cached page tokens for 190/2069032 auto-refresh — avoids hammering refresh on every call.
+- **Journal-style live-acid cleanup**: Append intended deletes to `.sisyphus/orphaned-posts.log` (gitignored) BEFORE the destructive call; scrub on success; `scripts/cleanup-orphans.mjs` retries at startup.
+- **DELETE over repoint** for `meta_search_places` (retired) and `meta_get_pixel_events` (redundant). Both documented in `.sisyphus/evidence/`.
+- **DEPRECATE-STUB** for `meta_get_instagram_broadcast_channels` (kept registration; returns structured `IG_BROADCAST_CHANNELS_DEPRECATED` error).
+
+**Left off at**: All 22 implementation tasks (T1-T22) verified, build clean, 107 tests + 1 skipped pass across 21 test files. Live-acid suite (T23/T24) requires a real `META_ACCESS_TOKEN` to execute against Dynamic Retail — operator must run `RUN_LIVE_ACID=1 npm run test:live` once credentials are in place. Final Verification Wave (F1-F4) still pending.
+
+**Open questions**: Should we eventually upstream the business-id allowlist to oliverames/meta-mcp-server as an opt-in security feature? Threads token-gap issues from the original 20-bug list remain out of scope for this sweep. Concurrent-bootstrap race condition has one `it.skip` test in `src/__tests__/business-authorization.test.ts` — documented in `.sisyphus/notepads/meta-mcp-bugfix-and-test-hardening/issues.md`.
+
+---
+
+
+
 ## 2026-04-06 — 1Password CLI fallback for credential resolution
 
 **What changed**: Added automatic 1Password CLI fallback to credential resolution at startup. When environment variables are not set, the server attempts to resolve them via `op read` from the Development vault before failing. Uses `execFileSync` (Node) or `exec.Command` (Go) for shell-safe execution with a 10s timeout. Silent no-op if 1Password CLI is unavailable. Updated README to document the integration with `op://` reference paths. Part of a broader session that also touched ynab-mcp-server, imagerelay-mcp-server, meta-mcp-server, sprout-mcp-server, and ames-unifi-mcp.
