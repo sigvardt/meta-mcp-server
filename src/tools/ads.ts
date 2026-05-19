@@ -1616,14 +1616,33 @@ Args:
   - pixel_id (string): Pixel ID
   - start_time (string, optional): ISO date for start of range
   - end_time (string, optional): ISO date for end of range
-  - aggregation (string, optional): "event" (default) or "device"
+  - aggregation (string, optional): one of browser_type, custom_data_field, device_os, device_type, event, host, match_keys, had_pii, pixel_fire, event_detection_method, url, event_value_count, url_by_rule, event_total_counts, event_source, event_processing_results. Common picks: "event" for event-name breakdowns, "device_os" for OS breakdowns, and "url" for URL breakdowns.
   - event (string, optional): Filter to specific event like "Purchase"`,
       inputSchema: z
         .object({
           pixel_id: z.string(),
           start_time: z.string().optional(),
           end_time: z.string().optional(),
-          aggregation: z.enum(["event", "device"]).default("event"),
+          aggregation: z
+            .enum([
+              "browser_type",
+              "custom_data_field",
+              "device_os",
+              "device_type",
+              "event",
+              "host",
+              "match_keys",
+              "had_pii",
+              "pixel_fire",
+              "event_detection_method",
+              "url",
+              "event_value_count",
+              "url_by_rule",
+              "event_total_counts",
+              "event_source",
+              "event_processing_results",
+            ])
+            .default("event"),
           event: z.string().optional(),
           response_format: ResponseFormatSchema,
         })
@@ -1771,47 +1790,11 @@ Args:
     }
   );
 
-  // ─── Get Pixel Events ─────────────────────────────────────────────────
-  server.registerTool(
-    "meta_get_pixel_events",
-    {
-      title: "Get Pixel Events",
-      description: `Gets recent events received by a pixel (for debugging).
-
-Args:
-  - pixel_id (string): Pixel ID`,
-      inputSchema: z
-        .object({
-          pixel_id: z.string(),
-          response_format: ResponseFormatSchema,
-        })
-        .strict(),
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async ({ pixel_id, response_format }) => {
-      try {
-        const data = await client.get<{ data: { event_name?: string; count?: number; error_count?: number; error_message?: string }[] }>(
-          `/${pixel_id}/test_events`, {}
-        );
-
-        if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-        }
-
-        if (!data.data?.length) {
-          return { content: [{ type: "text", text: "No recent events found for this pixel." }] };
-        }
-
-        const lines = [`# Recent Pixel Events (\`${pixel_id}\`)`, "", `| Event | Count | Errors | Error Message |`, `|-------|-------|--------|---------------|`];
-        for (const evt of data.data) {
-          lines.push(`| ${evt.event_name ?? "—"} | ${evt.count ?? 0} | ${evt.error_count ?? 0} | ${truncateField(evt.error_message, 100) ?? "—"} |`);
-        }
-        return { content: [{ type: "text", text: lines.join("\n") }] };
-      } catch (error) {
-        return errorResult(error);
-      }
-    }
-  );
+  // meta_get_pixel_events removed on 2026-05-19.
+  // Meta documents /{ads_pixel_id}/stats for reading pixel stats and
+  // /{ads_pixel_id}/events only as a POST edge for sending events.
+  // The old GET /test_events path returns (#2500) Unknown path components.
+  // Use meta_get_pixel_stats({ pixel_id, aggregation: "event" }) for event breakdowns.
 
   // ─── List Custom Conversions ───────────────────────────────────────────
   server.registerTool(
@@ -1925,7 +1908,7 @@ Args:
     async ({ ad_account_id, limit, after, response_format }) => {
       try {
         const params: Record<string, unknown> = {
-          fields: "id,name,targeting,approximate_count",
+          fields: "id,name,targeting",
           limit,
         };
         if (after) params.after = after;
@@ -3201,16 +3184,16 @@ Returns: Minimum budget requirements per bid strategy.`,
     "meta_list_offline_event_sets",
     {
       title: "List Offline Event Sets",
-      description: `Lists offline conversion event sets for an ad account.
+      description: `Lists custom conversions for offline conversion management on an ad account.
 
-Offline event sets track conversions that happen outside of digital channels (in-store purchases, phone orders, etc.).
+Meta's legacy offline conversion data set ad-account edge is no longer available in current Graph versions. This tool now reads the supported customconversions edge, which returns CustomConversion nodes that can reference offline event sets or other event sources.
 
 Args:
   - ad_account_id (string): Ad account ID (e.g., act_123456789)
   - limit (number): Max results (1–100, default 25)
   - after (string, optional): Pagination cursor
 
-Returns: Event set IDs, names, and configuration.`,
+Returns: Custom conversion IDs, names, event source details, and configuration.`,
       inputSchema: z
         .object({
           ad_account_id: z.string(),
@@ -3224,7 +3207,7 @@ Returns: Event set IDs, names, and configuration.`,
     async ({ ad_account_id, limit, after, response_format }) => {
       try {
         const params: Record<string, unknown> = {
-          fields: "id,name,description,is_auto_assigned,event_stats,last_fired_time",
+          fields: "id,name,pixel,custom_event_type,rule,creation_time,event_source_id,action_source_type",
           limit,
         };
         if (after) params.after = after;
@@ -3233,25 +3216,31 @@ Returns: Event set IDs, names, and configuration.`,
           id: string;
           name: string;
           description?: string;
-          is_auto_assigned?: boolean;
-          event_stats?: string;
-          last_fired_time?: string;
-        }>>(`/${ad_account_id}/offline_conversion_data_sets`, params);
+          pixel?: { id: string };
+          custom_event_type?: string;
+          rule?: string;
+          creation_time?: string;
+          event_source_id?: string;
+          action_source_type?: string;
+        }>>(`/${ad_account_id}/customconversions`, params);
 
         if (!data.data?.length) {
-          return { content: [{ type: "text", text: "No offline event sets found." }] };
+          return { content: [{ type: "text", text: "No offline custom conversions found." }] };
         }
 
         if (response_format === "json") {
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
         }
 
-        const lines = [`# Offline Event Sets (${data.data.length})`, ""];
+        const lines = [`# Offline Custom Conversions (${data.data.length})`, ""];
         for (const es of data.data) {
           lines.push(`## ${es.name} (\`${es.id}\`)`);
           if (es.description) lines.push(`- **Description**: ${es.description}`);
-          if (es.last_fired_time) lines.push(`- **Last Event**: ${formatDate(es.last_fired_time)}`);
-          if (es.is_auto_assigned !== undefined) lines.push(`- **Auto-assigned**: ${es.is_auto_assigned}`);
+          if (es.custom_event_type) lines.push(`- **Event type**: ${es.custom_event_type}`);
+          if (es.action_source_type) lines.push(`- **Action source**: ${es.action_source_type}`);
+          if (es.event_source_id) lines.push(`- **Event source**: \`${es.event_source_id}\``);
+          if (es.pixel?.id) lines.push(`- **Pixel**: \`${es.pixel.id}\``);
+          if (es.creation_time) lines.push(`- **Created**: ${formatDate(es.creation_time)}`);
           lines.push("");
         }
         return { content: [{ type: "text", text: lines.join("\n") }] };
