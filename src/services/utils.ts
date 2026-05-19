@@ -1,6 +1,7 @@
 import { AxiosError } from "axios";
 import { z } from "zod";
 import { CHARACTER_LIMIT } from "../constants.js";
+import { BusinessAuthorizationError } from "./business-authorization.js";
 
 // Shared Zod schema for response_format parameter — used by all tools
 export const ResponseFormatSchema = z
@@ -30,14 +31,192 @@ export const MUTATING_ANNOTATIONS = {
   openWorldHint: false,
 } as const;
 
-export function errorResult(error: unknown): { content: Array<{ type: "text"; text: string }>; isError: true } {
+type McpErrorResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError: true;
+  structuredContent?: { code: string; message: string };
+};
+
+type MetaErrorDetails = {
+  code?: number;
+  error_subcode?: number;
+  message?: string;
+  type?: string;
+};
+
+const META_DEV_RATE_LIMIT_CODE = 80004;
+const META_DEV_RATE_LIMIT_SUBCODE = 2446079;
+const META_APP_RATE_LIMIT_CODE = 4;
+const META_APP_RATE_LIMIT_MESSAGE = "application request limit reached";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function numericMetaField(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+
+  return undefined;
+}
+
+function findMetaError(value: unknown, seen = new Set<unknown>()): MetaErrorDetails | null {
+  if (!isRecord(value) || seen.has(value)) {
+    return null;
+  }
+  seen.add(value);
+
+  const code = numericMetaField(value.code ?? value.error_code);
+  const errorSubcode = numericMetaField(value.error_subcode ?? value.errorSubcode ?? value.subcode);
+
+  if (code !== undefined || errorSubcode !== undefined) {
+    return {
+      code,
+      error_subcode: errorSubcode,
+      message: typeof value.message === "string" ? value.message : undefined,
+      type: typeof value.type === "string" ? value.type : undefined,
+    };
+  }
+
+  for (const child of Object.values(value)) {
+    const found = findMetaError(child, seen);
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+function resultText(value: unknown): string {
+  if (!isRecord(value) || !Array.isArray(value.content)) {
+    return "";
+  }
+
+  return value.content
+    .map((item) => (isRecord(item) && typeof item.text === "string" ? item.text : ""))
+    .join("\n");
+}
+
+function parseMetaErrorFromText(text: string | undefined): MetaErrorDetails | null {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const found = findMetaError(parsed);
+    if (found) {
+      return found;
+    }
+  } catch {
+    // Human-readable MCP errors fall through to the regex parser.
+  }
+
+  const pairMatch = text.match(/\b(\d+)\/(\d+)\b/);
+  if (pairMatch) {
+    return {
+      code: Number.parseInt(pairMatch[1], 10),
+      error_subcode: Number.parseInt(pairMatch[2], 10),
+      message: text,
+    };
+  }
+
+  const humanErrorCodeMatch = text.match(/\bError\s*\((\d+)\)/i) ?? text.match(/\(#(\d+)\)/);
+  if (humanErrorCodeMatch) {
+    return {
+      code: Number.parseInt(humanErrorCodeMatch[1], 10),
+      message: text,
+    };
+  }
+
+  const codeMatch = text.match(/"?code"?\s*[:=]\s*(\d+)/i);
+  const subcodeMatch = text.match(/"?error_subcode"?\s*[:=]\s*(\d+)/i);
+  if (codeMatch || subcodeMatch) {
+    return {
+      code: codeMatch ? Number.parseInt(codeMatch[1], 10) : undefined,
+      error_subcode: subcodeMatch ? Number.parseInt(subcodeMatch[1], 10) : undefined,
+      message: text,
+    };
+  }
+
+  return null;
+}
+
+function extractMetaError(value: unknown): MetaErrorDetails | null {
+  const structured =
+    findMetaError(isRecord(value) ? value.metaError : undefined) ??
+    findMetaError(isRecord(value) ? value.mcpResult : undefined) ??
+    findMetaError(value);
+  if (structured) {
+    return structured;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const mcpResultText = resultText(value.mcpResult);
+  const parsedMcpResult = parseMetaErrorFromText(mcpResultText);
+  if (parsedMcpResult) {
+    return parsedMcpResult;
+  }
+
+  if (typeof value.message === "string") {
+    const parsedMessage = parseMetaErrorFromText(value.message);
+    if (parsedMessage) {
+      return parsedMessage;
+    }
+  }
+
+  const contentText = resultText(value);
+  return parseMetaErrorFromText(contentText);
+}
+
+export function isMetaDevRateLimit(error: unknown): boolean {
+  const metaError = extractMetaError(error);
+  if (!metaError) return false;
+
+  if (
+    metaError.code === META_DEV_RATE_LIMIT_CODE &&
+    metaError.error_subcode === META_DEV_RATE_LIMIT_SUBCODE
+  ) {
+    return true;
+  }
+
+  return (
+    metaError.code === META_APP_RATE_LIMIT_CODE &&
+    typeof metaError.message === "string" &&
+    metaError.message.toLowerCase().includes(META_APP_RATE_LIMIT_MESSAGE)
+  );
+}
+
+export function errorResult(error: unknown): McpErrorResult {
+  const message = handleApiError(error);
+  if (error instanceof BusinessAuthorizationError) {
+    return {
+      content: [{ type: "text" as const, text: message }],
+      structuredContent: { code: "BUSINESS_AUTH_DENIED", message: error.message },
+      isError: true,
+    };
+  }
+
   return {
-    content: [{ type: "text" as const, text: handleApiError(error) }],
+    content: [{ type: "text" as const, text: message }],
     isError: true,
   };
 }
 
 export function handleApiError(error: unknown): string {
+  if (error instanceof BusinessAuthorizationError) {
+    return `Error [BUSINESS_AUTH_DENIED]: ${error.message}`;
+  }
+
   if (error instanceof AxiosError) {
     if (error.response) {
       const data = error.response.data as Record<string, unknown> | undefined;

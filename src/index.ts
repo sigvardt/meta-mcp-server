@@ -3,6 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { MetaApiClient } from "./services/api.js";
+import { BusinessAuthorizationService } from "./services/business-authorization.js";
 import { registerPageTools } from "./tools/pages.js";
 import { registerInstagramTools } from "./tools/instagram.js";
 import { registerAdsTools } from "./tools/ads.js";
@@ -23,6 +24,20 @@ const token = process.env.META_ACCESS_TOKEN ?? "";
 const threadsToken = process.env.THREADS_ACCESS_TOKEN;
 
 const client = new MetaApiClient(token, threadsToken);
+const authService = new BusinessAuthorizationService();
+client.attachAuthService(authService);
+if (token) {
+  await authService.bootstrap(client);
+
+  const authAllowlistSummary = Object.entries(authService.getSnapshot())
+    .map(([type, ids]) => `${ids.length} ${type}`)
+    .join(", ");
+  console.error(`[meta-mcp] business-auth allowlist: ${authAllowlistSummary}`);
+} else {
+  console.error(
+    "[meta-mcp] META_ACCESS_TOKEN not set; skipping business-auth bootstrap."
+  );
+}
 
 const server = new McpServer({
   name: "meta-mcp-server",
