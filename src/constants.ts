@@ -5,8 +5,44 @@ export const CHARACTER_LIMIT = 25000;
 export const PAGE_FIELDS =
   "id,name,category,fan_count,followers_count,link,description,about,access_token,instagram_business_account";
 
+/**
+ * Default Facebook Page Insights metrics.
+ *
+ * Verified 2026-05-19 against:
+ * - https://developers.facebook.com/docs/graph-api/reference/insights/
+ * - https://developers.facebook.com/docs/platforminsights/page/deprecated-metrics/
+ * - https://developers.facebook.com/docs/pages-api/changelog/
+ *
+ * The set avoids legacy Page Insights names deprecated for all API versions
+ * and omits video-specific, breakdown-only, and day-only metrics from the
+ * default request. All entries are documented for period=day/week/days_28.
+ */
+export const PAGE_INSIGHTS_DEFAULT_METRICS: readonly string[] = [
+  "page_media_view",
+  "page_total_media_view_unique",
+  "page_post_engagements",
+  "page_daily_follows_unique",
+  "page_daily_unfollows_unique",
+  "page_views_total",
+] as const;
+
+// as of 2026-05-19, source: https://developers.facebook.com/docs/platforminsights/page/deprecated-metrics/
+export const PAGE_FAN_DEMOGRAPHICS_DEFAULT_METRICS = [
+  "page_follows_city",
+  "page_follows_country",
+] as const satisfies readonly string[];
+
 export const POST_FIELDS =
   "id,message,story,created_time,full_picture,permalink_url,from,attachments";
+
+// as of 2026-05-19, source: Meta Post Insights docs
+export const POST_INSIGHTS_DEFAULT_METRICS: readonly string[] = [
+  "post_media_view",
+  "post_total_media_view_unique",
+  "post_clicks",
+  "post_clicks_by_type",
+  "post_reactions_by_type_total",
+] as const;
 
 export const IG_ACCOUNT_FIELDS =
   "id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,website";
@@ -33,7 +69,7 @@ export const AD_ACCOUNT_FIELDS =
   "id,name,account_id,account_status,currency,timezone_name,spend_cap,amount_spent,balance,business";
 
 export const INSIGHT_FIELDS =
-  "impressions,reach,clicks,spend,cpm,cpc,cpp,ctr,frequency,unique_clicks,unique_impressions,actions,cost_per_action_type,conversions,conversion_values,cost_per_conversion,purchase_roas,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click,inline_post_engagement,outbound_clicks,outbound_clicks_ctr,cost_per_outbound_click,social_spend,video_play_actions,video_avg_time_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,cost_per_thruplay,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,date_start,date_stop";
+  "impressions,reach,clicks,spend,cpm,cpc,cpp,ctr,frequency,unique_clicks,actions,cost_per_action_type,conversions,conversion_values,cost_per_conversion,purchase_roas,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click,inline_post_engagement,outbound_clicks,outbound_clicks_ctr,cost_per_outbound_click,social_spend,video_play_actions,video_avg_time_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,cost_per_thruplay,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,date_start,date_stop";
 
 export const THREADS_API_BASE = "https://graph.threads.net/v1.0";
 

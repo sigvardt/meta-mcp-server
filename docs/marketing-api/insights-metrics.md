@@ -14,7 +14,6 @@ All ad insight tools (account, campaign, ad set, ad) request these fields by def
 | `reach` | Number of unique people who saw ads |
 | `clicks` | Total clicks (links, CTAs, and other) |
 | `unique_clicks` | Number of unique people who clicked |
-| `unique_impressions` | Number of unique people who saw ads |
 | `frequency` | Average number of times each person saw your ad |
 | `spend` | Total amount spent (dollar string, NOT cents) |
 

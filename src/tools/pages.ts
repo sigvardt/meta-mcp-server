@@ -2,8 +2,174 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MetaApiClient } from "../services/api.js";
 import { errorResult, truncate, truncateField, formatNumber, formatDate, buildPaginationNote, ResponseFormatSchema } from "../services/utils.js";
-import { PAGE_FIELDS, POST_FIELDS } from "../constants.js";
+import {
+  PAGE_FAN_DEMOGRAPHICS_DEFAULT_METRICS,
+  PAGE_FIELDS,
+  PAGE_INSIGHTS_DEFAULT_METRICS,
+  POST_FIELDS,
+  POST_INSIGHTS_DEFAULT_METRICS,
+} from "../constants.js";
 import { MetaPage, MetaPost, MetaPaginatedResponse } from "../types.js";
+
+type GraphApiErrorShape = {
+  response?: {
+    data?: {
+      error?: {
+        code?: unknown;
+        error_subcode?: unknown;
+        message?: unknown;
+        error_user_msg?: unknown;
+      };
+    };
+  };
+};
+
+const MESSENGER_PROFILE_FIELDS = [
+  "greeting",
+  "ice_breakers",
+  "get_started",
+  "persistent_menu",
+  "whitelisted_domains",
+  "account_linking_url",
+  "commands",
+].join(",");
+
+type MessengerProfileGreeting = {
+  locale?: string;
+  text?: string;
+};
+
+type MessengerProfileIceBreakerAction = {
+  question?: string;
+  payload?: string;
+};
+
+type MessengerProfileIceBreaker = MessengerProfileIceBreakerAction & {
+  locale?: string;
+  call_to_actions?: MessengerProfileIceBreakerAction[];
+};
+
+type MessengerProfileMenuItem = {
+  type?: string;
+  title?: string;
+  payload?: string;
+  url?: string;
+};
+
+type MessengerProfilePersistentMenu = {
+  locale?: string;
+  composer_input_disabled?: boolean;
+  call_to_actions?: MessengerProfileMenuItem[];
+};
+
+type MessengerProfileCommand = {
+  name?: string;
+  description?: string;
+};
+
+type MessengerProfileCommandSet = {
+  locale?: string;
+  commands?: MessengerProfileCommand[];
+};
+
+type MessengerProfileSettings = {
+  greeting?: MessengerProfileGreeting[];
+  ice_breakers?: MessengerProfileIceBreaker[];
+  get_started?: { payload?: string };
+  persistent_menu?: MessengerProfilePersistentMenu[];
+  whitelisted_domains?: string[];
+  account_linking_url?: string;
+  commands?: MessengerProfileCommandSet[];
+};
+
+type MessengerProfileResponse = MessengerProfileSettings & {
+  data?: MessengerProfileSettings[];
+};
+
+function describeMessengerMenuItem(item: MessengerProfileMenuItem): string {
+  const title = item.title ?? item.type ?? "Untitled item";
+  if (item.payload) return `${title} (payload: ${truncateField(item.payload, 120)})`;
+  if (item.url) return `${title} (${truncateField(item.url, 160)})`;
+  return title;
+}
+
+function formatMessengerProfileSummary(pageId: string, response: MessengerProfileResponse): string {
+  const settings: MessengerProfileSettings = response.data?.[0] ?? response;
+  const lines = [`# Automated Messaging Settings for Page \`${pageId}\``, ""];
+  let hasSettings = false;
+
+  const addSection = (title: string, sectionLines: string[]): void => {
+    if (!sectionLines.length) return;
+    hasSettings = true;
+    lines.push(`## ${title}:`);
+    lines.push(...sectionLines);
+    lines.push("");
+  };
+
+  if (settings.get_started?.payload) {
+    addSection("Get Started", [`- **Payload**: \`${truncateField(settings.get_started.payload, 200)}\``]);
+  }
+
+  addSection(
+    "Greeting",
+    (settings.greeting ?? [])
+      .filter((greeting) => greeting.text)
+      .map((greeting) => `- **${greeting.locale ?? "default"}**: ${truncateField(greeting.text ?? "", 240)}`)
+  );
+
+  const iceBreakerLines = (settings.ice_breakers ?? []).flatMap((iceBreaker) => {
+    const locale = iceBreaker.locale ? ` (${iceBreaker.locale})` : "";
+    const actions = iceBreaker.call_to_actions?.length
+      ? iceBreaker.call_to_actions
+      : iceBreaker.question
+        ? [iceBreaker]
+        : [];
+
+    return actions
+      .filter((action) => action.question)
+      .map((action) => {
+        const payload = action.payload ? ` (payload: ${truncateField(action.payload, 120)})` : "";
+        return `- ${truncateField(action.question ?? "", 180)}${locale}${payload}`;
+      });
+  });
+  addSection("Ice Breakers", iceBreakerLines);
+
+  addSection(
+    "Persistent Menu",
+    (settings.persistent_menu ?? []).map((menu) => {
+      const locale = menu.locale ?? "default";
+      const menuItems = menu.call_to_actions?.map(describeMessengerMenuItem).join("; ") || "No menu items";
+      const composerState = menu.composer_input_disabled ? "composer input disabled" : "composer input enabled";
+      return `- **${locale}**: ${composerState}; ${menuItems}`;
+    })
+  );
+
+  const commandLines = (settings.commands ?? []).flatMap((commandSet) => {
+    const locale = commandSet.locale ?? "default";
+    return (commandSet.commands ?? [])
+      .filter((command) => command.name)
+      .map((command) => {
+        const description = command.description ? ` - ${truncateField(command.description, 140)}` : "";
+        return `- **${locale}**: ${command.name}${description}`;
+      });
+  });
+  addSection("Commands", commandLines);
+
+  addSection(
+    "Whitelisted Domains",
+    (settings.whitelisted_domains ?? []).map((domain) => `- ${truncateField(domain, 180)}`)
+  );
+
+  if (settings.account_linking_url) {
+    addSection("Account Linking", [`- ${truncateField(settings.account_linking_url, 180)}`]);
+  }
+
+  if (!hasSettings) {
+    lines.push("_No Messenger Profile automated response settings are configured for the requested fields._");
+  }
+
+  return lines.join("\n");
+}
 
 export function registerPageTools(server: McpServer, client: MetaApiClient): void {
   // ─── List Pages ───────────────────────────────────────────────────────────
@@ -644,15 +810,11 @@ Requires: meta_list_pages called first.
 
 Args:
   - page_id (string): Facebook Page ID
-  - metrics (string[]): Metrics to retrieve. Full options:
-      Impressions: page_impressions, page_impressions_unique, page_impressions_organic, page_impressions_organic_unique, page_impressions_paid, page_impressions_paid_unique, page_impressions_viral, page_impressions_viral_unique, page_impressions_nonviral, page_impressions_nonviral_unique
-      Post Impressions: page_posts_impressions, page_posts_impressions_unique, page_posts_impressions_organic, page_posts_impressions_organic_unique, page_posts_impressions_paid, page_posts_impressions_paid_unique, page_posts_impressions_viral, page_posts_impressions_viral_unique
-      Engagement: page_engaged_users, page_post_engagements, page_total_actions, page_negative_feedback
-      Reactions: page_actions_post_reactions_total, page_actions_post_reactions_like_total, page_actions_post_reactions_love_total, page_actions_post_reactions_wow_total, page_actions_post_reactions_haha_total, page_actions_post_reactions_sorry_total, page_actions_post_reactions_anger_total
-      Fans: page_fans, page_fan_adds, page_fan_adds_unique, page_fan_adds_by_paid_non_paid_unique, page_fan_removes, page_fan_removes_unique, page_daily_follows, page_daily_follows_unique, page_daily_unfollows_unique
-      Views: page_views_total, page_tab_views_login_top, page_tab_views_login_top_unique, page_tab_views_logout_top
-      Video: page_video_views, page_video_views_unique, page_video_views_paid, page_video_views_organic, page_video_views_autoplayed, page_video_views_click_to_play, page_video_complete_views_30s, page_video_complete_views_30s_unique, page_video_complete_views_30s_paid, page_video_complete_views_30s_organic, page_video_repeat_views, page_video_view_time, page_video_views_10s, page_video_views_10s_unique, page_video_views_10s_paid, page_video_views_10s_organic
-      Content: page_media_view, page_lifetime_engaged_followers_unique
+  - metrics (string[]): Current Page Insights metrics to retrieve. Safe defaults:
+      Content views/reach: page_media_view, page_total_media_view_unique
+      Engagement: page_post_engagements
+      Follow growth: page_daily_follows_unique, page_daily_unfollows_unique
+      Page views: page_views_total
   - period (string): Aggregation period: 'day', 'week', 'days_28', 'month'
   - since (string, optional): Start date YYYY-MM-DD
   - until (string, optional): End date YYYY-MM-DD
@@ -663,18 +825,8 @@ Returns: Time-series data for each metric.`,
           page_id: z.string(),
           metrics: z
             .array(z.string())
-            .default([
-              "page_impressions",
-              "page_impressions_unique",
-              "page_engaged_users",
-              "page_post_engagements",
-              "page_fan_adds_unique",
-              "page_fan_removes_unique",
-              "page_views_total",
-              "page_actions_post_reactions_total",
-              "page_video_views",
-            ])
-            .describe("Metric names — see description for full list of 70+ available metrics"),
+            .default([...PAGE_INSIGHTS_DEFAULT_METRICS])
+            .describe("Current Page Insights metric names — defaults omit deprecated legacy metrics"),
           period: z
             .enum(["day", "week", "days_28", "month"])
             .default("day")
@@ -730,7 +882,35 @@ Returns: Time-series data for each metric.`,
         }
         return { content: [{ type: "text", text: truncate(lines.join("\n"), "metrics") }] };
       } catch (error) {
-        return errorResult(error);
+        const result = errorResult(error);
+        const graphError = (error as GraphApiErrorShape).response?.data?.error;
+        const graphMessage =
+          typeof graphError?.message === "string"
+            ? graphError.message
+            : typeof graphError?.error_user_msg === "string"
+              ? graphError.error_user_msg
+              : undefined;
+        const message =
+          result.content[0]?.text === "Error: Unexpected error occurred." && graphMessage
+            ? `Error (${String(graphError?.code ?? "unknown")}${graphError?.error_subcode ? `/${String(graphError.error_subcode)}` : ""}): ${graphMessage}`
+            : (result.content[0]?.text ?? "");
+        if (message.includes("valid insights metric")) {
+          return {
+            ...result,
+            content: [
+              {
+                type: "text",
+                text:
+                  `${message}\n\n` +
+                  "Hint: Check the `metrics` parameter. Legacy Page Insights metrics such as " +
+                  "`page_impressions`, `page_engaged_users`, and `page_consumptions` are deprecated. " +
+                  "Omit `metrics` to use the current defaults, or pass current names from " +
+                  "https://developers.facebook.com/docs/graph-api/reference/insights/.",
+              },
+            ],
+          };
+        }
+        return result;
       }
     }
   );
@@ -747,13 +927,12 @@ Requires: meta_list_pages called first.
 Args:
   - post_id (string): Post ID (e.g., "page_id_post_id")
   - page_id (string): Page ID (for authentication)
-  - metrics (string[]): Metrics to retrieve. Options:
-      Performance: post_impressions, post_impressions_unique, post_impressions_paid, post_impressions_paid_unique, post_impressions_fan, post_impressions_fan_unique, post_impressions_organic, post_impressions_organic_unique, post_impressions_viral, post_impressions_viral_unique
-      Engagement: post_clicks, post_clicks_by_type, post_engaged_users, post_negative_feedback, post_negative_feedback_by_type, post_engaged_fan
-      Reactions: post_reactions_by_type_total, post_reactions_like_total, post_reactions_love_total, post_reactions_wow_total, post_reactions_haha_total, post_reactions_sorry_total, post_reactions_anger_total
+  - metrics (string[]): Metrics to retrieve. Current non-video defaults:
       Media: post_media_view, post_total_media_view_unique
-      Video: post_video_avg_time_watched, post_video_complete_views_organic, post_video_complete_views_paid, post_video_views_organic, post_video_views_paid, post_video_view_time
+      Engagement: post_clicks, post_clicks_by_type
+      Reactions: post_reactions_by_type_total, post_reactions_like_total, post_reactions_love_total, post_reactions_wow_total, post_reactions_haha_total, post_reactions_sorry_total, post_reactions_anger_total
       Activity: post_activity_by_action_type, post_activity_by_action_type_unique
+      Video-only post_video_* metrics are opt-in and should only be requested for video posts.
 
 All post metrics use 'lifetime' period (cumulative from post creation).`,
       inputSchema: z
@@ -762,16 +941,7 @@ All post metrics use 'lifetime' period (cumulative from post creation).`,
           page_id: z.string().describe("Page ID (for auth)"),
           metrics: z
             .array(z.string())
-            .default([
-              "post_impressions",
-              "post_impressions_unique",
-              "post_impressions_paid",
-              "post_impressions_organic",
-              "post_engaged_users",
-              "post_clicks",
-              "post_reactions_by_type_total",
-              "post_negative_feedback",
-            ])
+            .default([...POST_INSIGHTS_DEFAULT_METRICS])
             .describe("Metric names — see description for full list"),
           response_format: ResponseFormatSchema,
         })
@@ -1374,13 +1544,13 @@ Args:
 
 Args:
   - page_id (string): Facebook Page ID
-  - metric (string): Demographic metric — 'page_fans_city', 'page_fans_country', 'page_fans_gender_age', 'page_fans_locale'`,
+  - metrics (string[]): Demographic metrics — 'page_follows_city', 'page_follows_country'`,
       inputSchema: z
         .object({
           page_id: z.string(),
-          metric: z
-            .enum(["page_fans_city", "page_fans_country", "page_fans_gender_age", "page_fans_locale"])
-            .default("page_fans_gender_age"),
+          metrics: z
+            .array(z.enum(["page_follows_city", "page_follows_country"]))
+            .default([...PAGE_FAN_DEMOGRAPHICS_DEFAULT_METRICS]),
           response_format: ResponseFormatSchema,
         })
         .strict(),
@@ -1391,14 +1561,14 @@ Args:
         openWorldHint: false,
       },
     },
-    async ({ page_id, metric, response_format }) => {
+    async ({ page_id, metrics, response_format }) => {
       try {
         const pageToken = client.requirePageToken(page_id);
         const data = await client.getWithToken<{ data: Array<{
           name: string;
           values: Array<{ value: Record<string, number> }>;
         }> }>(`/${page_id}/insights`, pageToken, {
-          metric,
+          metric: metrics.join(","),
           period: "lifetime",
         });
 
@@ -1406,19 +1576,23 @@ Args:
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
         }
 
-        const item = data.data?.[0];
-        if (!item?.values?.length) {
+        const items = data.data?.filter((item) => item.values?.length) ?? [];
+        if (!items.length) {
           return { content: [{ type: "text", text: "No demographic data available." }] };
         }
 
-        const breakdown = item.values[item.values.length - 1].value;
-        const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
-        const lines = [`# ${metric.replace(/_/g, " ").replace(/\bpage\b/i, "Page")}`, ""];
-        for (const [key, val] of sorted.slice(0, 30)) {
-          lines.push(`- **${key}**: ${formatNumber(val)}`);
+        const lines: string[] = [];
+        for (const item of items) {
+          const breakdown = item.values[item.values.length - 1].value;
+          const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
+          lines.push(`# ${item.name.replace(/_/g, " ").replace(/\bpage\b/i, "Page")}`, "");
+          for (const [key, val] of sorted.slice(0, 30)) {
+            lines.push(`- **${key}**: ${formatNumber(val)}`);
+          }
+          if (sorted.length > 30) lines.push(`\n_...and ${sorted.length - 30} more_`);
+          lines.push("");
         }
-        if (sorted.length > 30) lines.push(`\n_...and ${sorted.length - 30} more_`);
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return { content: [{ type: "text", text: lines.join("\n").trimEnd() }] };
       } catch (error) {
         return errorResult(error);
       }
@@ -1537,12 +1711,18 @@ Args:
 
 Args:
   - page_id (string): Facebook Page ID
-  - limit (number): Max results (1–100, default 20)`,
+  - limit (number): Max results (1–100, default 20)
+  - include_thumbnails (boolean): Add thumbnails back only when needed; Meta caps page-video edge requests at 600`,
       inputSchema: z
         .object({
           page_id: z.string(),
           limit: z.number().int().min(1).max(100).default(20),
           after: z.string().optional(),
+          include_thumbnails: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe("Add thumbnails back only when needed; Meta caps page-video edge requests at 600"),
           response_format: ResponseFormatSchema,
         })
         .strict(),
@@ -1553,11 +1733,15 @@ Args:
         openWorldHint: false,
       },
     },
-    async ({ page_id, limit, after, response_format }) => {
+    async ({ page_id, limit, after, include_thumbnails, response_format }) => {
       try {
         const pageToken = client.requirePageToken(page_id);
+        const fields = ["id", "title", "description", "length", "views", "created_time", "permalink_url", "source"];
+        if (include_thumbnails) {
+          fields.push("thumbnails");
+        }
         const params: Record<string, unknown> = {
-          fields: "id,title,description,length,views,created_time,permalink_url,source",
+          fields: fields.join(","),
           limit,
         };
         if (after) params.after = after;
@@ -2090,7 +2274,9 @@ Args:
 Args:
   - page_id (string): Facebook Page ID
   - type (string): 'uploaded' (by page) or 'tagged' (photos page is tagged in)
-  - limit (number): Max results (default 20)`,
+  - limit (number): Max results (default 20)
+  - after (string, optional): Pagination cursor for next page
+  - before (string, optional): Pagination cursor for previous page`,
       inputSchema: z
         .object({
           page_id: z.string(),
@@ -2146,12 +2332,15 @@ Args:
 
 Args:
   - page_id (string): Facebook Page ID
-  - limit (number): Max results (default 20)`,
+  - limit (number): Max results (default 20)
+  - after (string, optional): Pagination cursor for next page
+  - before (string, optional): Pagination cursor for previous page`,
       inputSchema: z
         .object({
           page_id: z.string(),
           limit: z.number().int().min(1).max(100).default(20),
           after: z.string().optional(),
+          before: z.string().optional(),
           response_format: ResponseFormatSchema,
         })
         .strict(),
@@ -2265,25 +2454,33 @@ Call without subscribed_fields to check current subscriptions.`,
 
 Args:
   - page_id (string): Facebook Page ID
-  - limit (number): Max results (default 20)`,
+  - limit (number): Max results (default 20)
+  - after (string, optional): Pagination cursor for next page
+  - before (string, optional): Pagination cursor for previous page`,
       inputSchema: z
         .object({
           page_id: z.string(),
           limit: z.number().int().min(1).max(100).default(20),
           after: z.string().optional(),
+          before: z.string().optional(),
           response_format: ResponseFormatSchema,
         })
         .strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ page_id, limit, after, response_format }) => {
+    async ({ page_id, limit, after, before, response_format }) => {
       try {
         const pageToken = client.requirePageToken(page_id);
-        const params: Record<string, unknown> = { fields: POST_FIELDS + ",is_eligible_for_promotion", limit };
+        const params: Record<string, unknown> = {
+          fields: POST_FIELDS + ",is_eligible_for_promotion",
+          is_eligible_for_promotion: true,
+          limit,
+        };
         if (after) params.after = after;
+        if (before) params.before = before;
 
         const data = await client.getWithToken<MetaPaginatedResponse<MetaPost & { is_eligible_for_promotion?: boolean }>>(
-          `/${page_id}/promotable_posts`,
+          `/${page_id}/feed`,
           pageToken,
           params
         );
@@ -2728,14 +2925,14 @@ Ends the broadcast immediately.`,
     "meta_get_page_automated_responses",
     {
       title: "Get Page Automated Messaging Settings",
-      description: `Gets the current automated messaging settings for a Facebook Page.
+      description: `Gets the current Messenger Profile automated messaging settings for a Facebook Page.
 
 Requires: meta_list_pages called first to load page tokens.
 
 Args:
   - page_id (string): Facebook Page ID
 
-Returns: Instant reply message, away message, greeting text, and ice breakers configuration.`,
+Returns: Greeting text, ice breakers, get-started payload, persistent menu, commands, allowed domains, and account-linking URL when configured.`,
       inputSchema: z
         .object({
           page_id: z.string().describe("Facebook Page ID"),
@@ -2749,49 +2946,14 @@ Returns: Instant reply message, away message, greeting text, and ice breakers co
         openWorldHint: false,
       },
     },
-    async ({ page_id, response_format }) => {
+    async ({ page_id }) => {
       try {
         const pageToken = client.requirePageToken(page_id);
-        const data = await client.getWithToken<Record<string, unknown>>(`/${page_id}`, pageToken, {
-          fields: "instant_reply_message,greeting,ice_breakers",
+        const data = await client.getWithToken<MessengerProfileResponse>("/me/messenger_profile", pageToken, {
+          fields: MESSENGER_PROFILE_FIELDS,
         });
 
-        if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-        }
-
-        const lines = [
-          `# Automated Messaging Settings for Page \`${page_id}\``,
-          "",
-        ];
-
-        if (data.instant_reply_message) {
-          lines.push(`## Instant Reply`);
-          lines.push(`- **Message**: ${data.instant_reply_message}`);
-          lines.push("");
-        }
-
-        if (data.greeting && Array.isArray(data.greeting)) {
-          lines.push(`## Greeting`);
-          for (const g of data.greeting as Array<{ locale: string; text: string }>) {
-            lines.push(`- **${g.locale}**: ${g.text}`);
-          }
-          lines.push("");
-        }
-
-        if (data.ice_breakers && Array.isArray(data.ice_breakers)) {
-          lines.push(`## Ice Breakers`);
-          for (const ib of data.ice_breakers as Array<{ question: string; payload?: string }>) {
-            lines.push(`- ${ib.question}`);
-          }
-          lines.push("");
-        }
-
-        if (lines.length === 2) {
-          lines.push("_No automated messaging settings configured._");
-        }
-
-        return { content: [{ type: "text", text: truncate(lines.join("\n"), "automated responses") }] };
+        return { content: [{ type: "text", text: truncate(formatMessengerProfileSummary(page_id, data), "automated responses") }] };
       } catch (error) {
         return errorResult(error);
       }

@@ -157,7 +157,6 @@ export interface InsightData {
   reach?: string;
   clicks?: string;
   unique_clicks?: string;
-  unique_impressions?: string;
   frequency?: string;
   // Cost
   spend?: string;
