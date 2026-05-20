@@ -285,7 +285,7 @@ Returns page details including name, category, description, follower counts, and
         openWorldHint: false,
       },
     },
-    async ({ page_id }) => {
+    async ({ page_id, response_format }) => {
       try {
         const page = await client.get<MetaPage>(`/${page_id}`, {
           fields: PAGE_FIELDS,
