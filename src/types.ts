@@ -143,7 +143,7 @@ export interface CustomAudience {
 export interface MetaPaginatedResponse<T> {
   data: T[];
   paging?: {
-    cursors?: { before: string; after: string };
+    cursors?: { before?: string; after?: string };
     next?: string;
     previous?: string;
   };

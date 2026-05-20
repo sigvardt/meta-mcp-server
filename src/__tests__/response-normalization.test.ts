@@ -4,6 +4,7 @@ import { MetaApiClient } from "../services/api.js";
 import { registerAdsTools } from "../tools/ads.js";
 import { registerInstagramTools } from "../tools/instagram.js";
 import { registerPageTools } from "../tools/pages.js";
+import { registerUtilityTools } from "../tools/utility.js";
 import { mockAxios, mockSuccess } from "./_fixtures.js";
 
 vi.mock("axios");
@@ -42,6 +43,11 @@ function toolHarness(registerTools: RegisterTools, client = new MetaApiClient("u
 function parseToolJson(result: ToolResult): unknown {
   expect(result.isError).not.toBe(true);
   return JSON.parse(result.content[0]?.text ?? "null") as unknown;
+}
+
+function registerPageAndUtilityTools(server: never, client: MetaApiClient): void {
+  registerPageTools(server, client);
+  registerUtilityTools(server, client);
 }
 
 describe("Graph response sanitization", () => {
@@ -107,6 +113,37 @@ describe("read-tool JSON envelopes", () => {
     expect(payload.data[0]).not.toHaveProperty("access_token");
     expect(payload.paging?.next).not.toContain("access_token");
     expect(client.getPageToken("page-1")).toBe("page-secret-token");
+  });
+
+  it("reports page tokens cached in meta_health_check after meta_list_pages", async () => {
+    const state = mockAxios();
+    vi.mocked(state.axiosInstance.get)
+      .mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
+        state.requests.push({ method: "get", url, params: config?.params });
+        return Promise.resolve(
+          mockSuccess({
+            data: [
+              {
+                id: "page-1",
+                name: "Main Page",
+                category: "Retail",
+                access_token: "page-secret-token",
+              },
+            ],
+          }) as never
+        );
+      })
+      .mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
+        state.requests.push({ method: "get", url, params: config?.params });
+        return Promise.resolve(mockSuccess({ id: "user-1" }) as never);
+      });
+    const { handler } = toolHarness(registerPageAndUtilityTools as unknown as RegisterTools);
+
+    await handler<{ response_format: "json" }>("meta_list_pages")({ response_format: "json" });
+    const result = await handler<{ response_format: "json" }>("meta_health_check")({ response_format: "json" });
+    const payload = parseToolJson(result) as Record<string, string>;
+
+    expect(payload["Cached page tokens"]).toBe("1 pages");
   });
 
   it("wraps empty meta_list_ad_accounts JSON output in a data envelope", async () => {

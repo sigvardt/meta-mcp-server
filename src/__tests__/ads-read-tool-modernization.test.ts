@@ -37,7 +37,7 @@ function parseToolJson(result: ToolResult): unknown {
 }
 
 describe("ads read-tool request modernization", () => {
-  it("does not request removed estimate_mau from delivery estimates", async () => {
+  it("requests only current delivery estimate fields", async () => {
     const state = mockAxios();
     vi.mocked(state.axiosInstance.get).mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
       state.requests.push({ method: "get", url, params: config?.params });
@@ -51,15 +51,40 @@ describe("ads read-tool request modernization", () => {
 
     expect(result.isError).not.toBe(true);
     const params = state.requests[0]?.params as Record<string, unknown>;
-    expect(params.fields).toContain("estimate_ready");
-    expect(params.fields).not.toContain("estimate_mau");
+    const fieldList = String(params.fields).split(",");
+    expect(fieldList).toEqual([
+      "daily_outcomes_curve",
+      "estimate_dau",
+      "estimate_mau_lower_bound",
+      "estimate_mau_upper_bound",
+      "estimate_ready",
+      "targeting_optimization_types",
+    ]);
+    expect(fieldList).not.toContain("estimate_mau");
+    expect(fieldList).not.toContain("bid_estimate");
   });
 
   it("omits ad video thumbnails when thumbnails_limit is zero", async () => {
     const state = mockAxios();
     vi.mocked(state.axiosInstance.get).mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
       state.requests.push({ method: "get", url, params: config?.params });
-      return Promise.resolve(mockSuccess({ data: [{ id: "video-1", title: "Demo" }] }) as never);
+      return Promise.resolve(
+        mockSuccess({
+          data: [
+            {
+              id: "video-1",
+              title: "Demo",
+              thumbnails: {
+                data: [
+                  { uri: "fallback", is_preferred: false },
+                  { uri: "preferred", is_preferred: true },
+                  { uri: "extra", is_preferred: false },
+                ],
+              },
+            },
+          ],
+        }) as never
+      );
     });
 
     const result = await adsHandler<{
@@ -83,7 +108,23 @@ describe("ads read-tool request modernization", () => {
     const state = mockAxios();
     vi.mocked(state.axiosInstance.get).mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
       state.requests.push({ method: "get", url, params: config?.params });
-      return Promise.resolve(mockSuccess({ data: [{ id: "video-1", title: "Demo" }] }) as never);
+      return Promise.resolve(
+        mockSuccess({
+          data: [
+            {
+              id: "video-1",
+              title: "Demo",
+              thumbnails: {
+                data: [
+                  { uri: "fallback", is_preferred: false },
+                  { uri: "preferred", is_preferred: true },
+                  { uri: "unused", is_preferred: false },
+                ],
+              },
+            },
+          ],
+        }) as never
+      );
     });
 
     const result = await adsHandler<{
@@ -102,6 +143,10 @@ describe("ads read-tool request modernization", () => {
     expect(result.isError).not.toBe(true);
     const params = state.requests[0]?.params as Record<string, unknown>;
     expect(params.fields).toContain("thumbnails.limit(1)");
+    const payload = parseToolJson(result) as {
+      data: Array<{ thumbnails: { data: Array<{ uri: string; is_preferred: boolean }> } }>;
+    };
+    expect(payload.data[0]?.thumbnails.data).toEqual([{ uri: "preferred", is_preferred: true }]);
   });
 
   it("filters placement_asset system labels by default and keeps the paging envelope", async () => {
@@ -179,6 +224,71 @@ describe("ads read-tool request modernization", () => {
 
     expect(result.isError).not.toBe(true);
     expect(state.requests[0]?.params).toMatchObject({ limit: 7, after: "cursor-1" });
+  });
+
+  it("locally paginates targeting categories when Graph ignores limit", async () => {
+    const state = mockAxios();
+    vi.mocked(state.axiosInstance.get).mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
+      state.requests.push({ method: "get", url, params: config?.params });
+      return Promise.resolve(
+        mockSuccess({
+          data: [
+            { id: "cat-1", name: "One" },
+            { id: "cat-2", name: "Two" },
+            { id: "cat-3", name: "Three" },
+          ],
+        }) as never
+      );
+    });
+
+    const result = await adsHandler<{
+      type: "adTargetingCategory";
+      limit: number;
+      response_format: "json";
+    }>("meta_browse_targeting_categories")({
+      type: "adTargetingCategory",
+      limit: 2,
+      response_format: "json",
+    });
+    const payload = parseToolJson(result) as {
+      data: Array<{ id: string }>;
+      paging?: { cursors?: { after?: string } };
+    };
+
+    expect(payload.data).toEqual([{ id: "cat-1", name: "One" }, { id: "cat-2", name: "Two" }]);
+    expect(payload.paging?.cursors?.after).toBe("local-targeting-offset:2");
+  });
+
+  it("uses local targeting cursors without sending them to Graph", async () => {
+    const state = mockAxios();
+    vi.mocked(state.axiosInstance.get).mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
+      state.requests.push({ method: "get", url, params: config?.params });
+      return Promise.resolve(
+        mockSuccess({
+          data: [
+            { id: "cat-1", name: "One" },
+            { id: "cat-2", name: "Two" },
+            { id: "cat-3", name: "Three" },
+          ],
+        }) as never
+      );
+    });
+
+    const result = await adsHandler<{
+      type: "adTargetingCategory";
+      limit: number;
+      after: string;
+      response_format: "json";
+    }>("meta_browse_targeting_categories")({
+      type: "adTargetingCategory",
+      limit: 2,
+      after: "local-targeting-offset:2",
+      response_format: "json",
+    });
+    const payload = parseToolJson(result) as { data: Array<{ id: string }> };
+
+    expect(state.requests[0]?.params).not.toMatchObject({ after: "local-targeting-offset:2" });
+    expect(payload.data).toEqual([{ id: "cat-3", name: "Three" }]);
   });
 
   it("registers meta_list_ad_studies as an alias while preserving meta_get_ad_studies", async () => {

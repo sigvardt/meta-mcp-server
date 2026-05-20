@@ -87,7 +87,11 @@ function findMetaError(value: unknown, seen = new Set<unknown>()): MetaErrorDeta
     return {
       code,
       error_subcode: errorSubcode,
-      message: typeof value.message === "string" ? value.message : undefined,
+      message: typeof value.message === "string"
+        ? value.message
+        : typeof value.error_user_msg === "string"
+          ? value.error_user_msg
+          : undefined,
       type: typeof value.type === "string" ? value.type : undefined,
     };
   }
@@ -229,9 +233,62 @@ export function jsonDataResult<T>(response: DataEnvelope<T>, data: T[] = respons
   return jsonResult({ ...response, data });
 }
 
+function formatMetaApiError(metaError: MetaErrorDetails): string | null {
+  const code = metaError.code;
+  if (code === undefined) return null;
+
+  const subcode = metaError.error_subcode;
+  const msgText = metaError.message ?? "Unknown error";
+
+  if (code === 190) {
+    if (subcode === 2069032) {
+      return (
+        `Error: Access token was rejected for this Page-owned content (${code}/${subcode}): ${msgText}\n\n` +
+        `For Page posts, call meta_list_pages first so the MCP can cache Page tokens, then retry. ` +
+        `If the endpoint reads public Page content, the app may also need the Page Public Content Access feature; regenerating the same user token alone usually will not fix this.`
+      );
+    }
+
+    return (
+      `Error: Access token is invalid or expired (${code}${subcode ? `/${subcode}` : ""}).\n\n` +
+      `To fix: Generate a new long-lived token at https://developers.facebook.com/tools/explorer/ ` +
+      `and update META_ACCESS_TOKEN in your MCP config.`
+    );
+  }
+
+  if (
+    code === 200 &&
+    msgText.toLowerCase().includes("ad account owner") &&
+    msgText.toLowerCase().includes("ads_management")
+  ) {
+    return (
+      `Error: Ad account does not exist or you do not have access (${code}): ${msgText}\n\n` +
+      `Check the ad account ID, including the act_ prefix, or use meta_list_ad_accounts to choose an account visible to this token.`
+    );
+  }
+
+  if (code === 10 || code === 200) {
+    return (
+      `Error: Missing permission or app-review gated access (${code}${subcode ? `/${subcode}` : ""}): ${msgText}\n\n` +
+      `Grant the required permission at https://developers.facebook.com/tools/explorer/ and regenerate your token. ` +
+      `For public content, Page tabs, Instagram messaging, and Ad Library endpoints, the app must also have the relevant Meta App Review feature approved; a new token alone will not unlock those endpoints.`
+    );
+  }
+
+  return `Error (${code}${subcode ? `/${subcode}` : ""}): ${msgText}`;
+}
+
 export function handleApiError(error: unknown): string {
   if (error instanceof BusinessAuthorizationError) {
     return `Error [BUSINESS_AUTH_DENIED]: ${error.message}`;
+  }
+
+  const extractedMetaError = extractMetaError(error);
+  const formattedExtractedMetaError = extractedMetaError
+    ? formatMetaApiError(extractedMetaError)
+    : null;
+  if (formattedExtractedMetaError) {
+    return formattedExtractedMetaError;
   }
 
   if (error instanceof AxiosError) {
@@ -239,28 +296,12 @@ export function handleApiError(error: unknown): string {
       const data = error.response.data as Record<string, unknown> | undefined;
       const metaError = data?.error as Record<string, unknown> | undefined;
       if (metaError) {
-        const code = metaError.code;
+        const code = numericMetaField(metaError.code);
         const msg = metaError.message ?? metaError.error_user_msg;
         const msgText = typeof msg === "string" ? msg : String(msg ?? "Unknown error");
-        const subcode = metaError.error_subcode;
-
-        // Provide actionable guidance for common error codes
-        if (code === 190) {
-          return (
-            `Error: Access token is invalid or expired (${code}${subcode ? `/${subcode}` : ""}).\n\n` +
-            `To fix: Generate a new long-lived token at https://developers.facebook.com/tools/explorer/ ` +
-            `and update META_ACCESS_TOKEN in your MCP config.`
-          );
-        }
-        if (code === 10 || code === 200) {
-          return (
-            `Error: Missing permission or app-review gated access (${code}${subcode ? `/${subcode}` : ""}): ${msgText}\n\n` +
-            `Grant the required permission at https://developers.facebook.com/tools/explorer/ and regenerate your token. ` +
-            `For public content, Page tabs, Instagram messaging, and Ad Library endpoints, the app must also have the relevant Meta App Review feature approved; a new token alone will not unlock those endpoints.`
-          );
-        }
-
-        return `Error (${code}${subcode ? `/${subcode}` : ""}): ${msgText}`;
+        const subcode = numericMetaField(metaError.error_subcode);
+        const formattedMetaError = formatMetaApiError({ code, error_subcode: subcode, message: msgText });
+        if (formattedMetaError) return formattedMetaError;
       }
       switch (error.response.status) {
         case 400:

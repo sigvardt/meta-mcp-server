@@ -87,6 +87,8 @@ This fork can enforce a **business-id allowlist** on Meta Graph API calls. By de
 
 Optional comma-separated list of business IDs the server is allowed to touch. If unset or empty, the business authorization gate runs unrestricted and allows all resource IDs visible to the provided Meta token. If set, startup fetches each business's owned/client ad accounts, pages, Instagram accounts, pixels, product catalogs, and system users — those IDs form the allowlist. Subsequent API calls are checked against the allowlist before any HTTP request leaves the process.
 
+Do not set this to `*`; use an unset or empty value for unrestricted local runs.
+
 ```bash
 # Default: unrestricted
 # META_ALLOWED_BUSINESS_IDS unset → allow all resource IDs visible to META_ACCESS_TOKEN
@@ -97,8 +99,8 @@ export META_ALLOWED_BUSINESS_IDS=833812607571849,1234567890123456
 
 ### `META_AUTH_BOOTSTRAP_MODE`
 
-- `enforce` (default) — fail-closed. Unknown paths return `BUSINESS_AUTH_DENIED` and no HTTP request is sent.
-- `warn` — log-and-allow. Useful for dev/diagnostic runs where you want to see what would be blocked without breaking workflows.
+- `fail-closed` (default) — if bootstrap fails, startup fails instead of running with a partial allowlist. Denied resource calls return `BUSINESS_AUTH_DENIED` and no HTTP request is sent.
+- `warn` — if a bootstrap edge cannot be fetched, log it and continue with the seed-only/partial allowlist. This does not disable enforcement for non-bypass resources.
 
 ### Bypass paths
 

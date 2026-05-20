@@ -14,6 +14,38 @@ type CustomConversionRecord = {
   creation_time?: string;
 };
 
+type AdVideoThumbnail = {
+  uri?: string;
+  width?: number;
+  height?: number;
+  scale?: number;
+  is_preferred?: boolean;
+};
+
+type AdVideoThumbnails =
+  | AdVideoThumbnail[]
+  | ({ data?: AdVideoThumbnail[] } & Record<string, unknown>);
+
+type AdVideoRecord = {
+  id: string;
+  title?: string;
+  length?: number;
+  created_time?: string;
+  permalink_url?: string;
+  thumbnails?: AdVideoThumbnails;
+};
+
+type TargetingCategoryRecord = {
+  id: string;
+  name: string;
+  type?: string;
+  path?: string[];
+  audience_size?: number;
+  description?: string;
+};
+
+const LOCAL_TARGETING_CURSOR_PREFIX = "local-targeting-offset:";
+
 function parseCustomConversionRules(
   data: MetaPaginatedResponse<CustomConversionRecord>
 ): MetaPaginatedResponse<CustomConversionRecord> {
@@ -32,6 +64,79 @@ function parseCustomConversionRules(
 
 function isSystemGeneratedAdLabel(label: { name?: string }): boolean {
   return label.name?.startsWith("placement_asset_") ?? false;
+}
+
+function preferredFirst(thumbnails: AdVideoThumbnail[], limit: number): AdVideoThumbnail[] {
+  const preferred = thumbnails.filter((thumbnail) => thumbnail.is_preferred);
+  const fallback = thumbnails.filter((thumbnail) => !thumbnail.is_preferred);
+  return [...preferred, ...fallback].slice(0, limit);
+}
+
+function trimAdVideoThumbnails(
+  response: MetaPaginatedResponse<AdVideoRecord>,
+  thumbnailsLimit: number
+): MetaPaginatedResponse<AdVideoRecord> {
+  if (thumbnailsLimit <= 0 || !response.data?.length) return response;
+
+  return {
+    ...response,
+    data: response.data.map((video) => {
+      const thumbnails = video.thumbnails;
+      if (Array.isArray(thumbnails)) {
+        return { ...video, thumbnails: preferredFirst(thumbnails, thumbnailsLimit) };
+      }
+
+      if (thumbnails && Array.isArray(thumbnails.data)) {
+        return {
+          ...video,
+          thumbnails: {
+            ...thumbnails,
+            data: preferredFirst(thumbnails.data, thumbnailsLimit),
+          },
+        };
+      }
+
+      return video;
+    }),
+  };
+}
+
+function parseLocalTargetingCursor(after: string | undefined): number | null {
+  if (!after?.startsWith(LOCAL_TARGETING_CURSOR_PREFIX)) return null;
+
+  const parsed = Number.parseInt(after.slice(LOCAL_TARGETING_CURSOR_PREFIX.length), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function paginateTargetingCategories(
+  response: MetaPaginatedResponse<TargetingCategoryRecord>,
+  limit: number,
+  after: string | undefined
+): MetaPaginatedResponse<TargetingCategoryRecord> {
+  const data = response.data ?? [];
+  const offset = parseLocalTargetingCursor(after) ?? 0;
+  const pagedData = data.slice(offset, offset + limit);
+  const nextOffset = offset + limit;
+
+  if (data.length <= limit && offset === 0) {
+    return { ...response, data: pagedData };
+  }
+
+  const nextCursor = nextOffset < data.length
+    ? `${LOCAL_TARGETING_CURSOR_PREFIX}${nextOffset}`
+    : response.paging?.cursors?.after;
+
+  return {
+    ...response,
+    data: pagedData,
+    paging: {
+      ...response.paging,
+      cursors: {
+        ...response.paging?.cursors,
+        ...(nextCursor ? { after: nextCursor } : {}),
+      },
+    },
+  };
 }
 
 export function registerAdsTools(server: McpServer, client: MetaApiClient): void {
@@ -1493,7 +1598,7 @@ Returns: Estimated daily reach and audience size.`,
 Args:
   - adset_id (string): Ad set ID
 
-Returns: Estimated daily outcomes (reach, impressions, actions) and bid suggestion.`,
+Returns: Estimated daily outcomes, reach bounds, readiness, and targeting optimization metadata.`,
       inputSchema: z
         .object({
           adset_id: z.string(),
@@ -1506,7 +1611,10 @@ Returns: Estimated daily outcomes (reach, impressions, actions) and bid suggesti
       try {
         const data = await client.get<{ data: unknown[] }>(
           `/${adset_id}/delivery_estimate`,
-          { fields: "daily_outcomes_curve,estimate_dau,estimate_ready,bid_estimate" }
+          {
+            fields:
+              "daily_outcomes_curve,estimate_dau,estimate_mau_lower_bound,estimate_mau_upper_bound,estimate_ready,targeting_optimization_types",
+          }
         );
 
         if (response_format === "json") {
@@ -2163,9 +2271,10 @@ Args:
         };
         if (after) params.after = after;
 
-        const data = await client.get<MetaPaginatedResponse<{
-          id: string; title?: string; length?: number; created_time?: string; permalink_url?: string;
-        }>>(`/${ad_account_id}/advideos`, params);
+        const data = trimAdVideoThumbnails(
+          await client.get<MetaPaginatedResponse<AdVideoRecord>>(`/${ad_account_id}/advideos`, params),
+          thumbnails_limit
+        );
 
         if (!data.data?.length) {
           return { content: [{ type: "text", text: "No ad videos found." }] };
@@ -2611,13 +2720,15 @@ Args:
     },
     async ({ type, class: subclass, limit, after, response_format }) => {
       try {
+        const localCursorOffset = parseLocalTargetingCursor(after);
         const params: Record<string, unknown> = { type, limit };
         if (subclass) params.class = subclass;
-        if (after) params.after = after;
+        if (after && localCursorOffset === null) params.after = after;
 
-        const data = await client.get<MetaPaginatedResponse<{ id: string; name: string; type?: string; path?: string[]; audience_size?: number; description?: string }>>(
-          "/search",
-          params
+        const data = paginateTargetingCategories(
+          await client.get<MetaPaginatedResponse<TargetingCategoryRecord>>("/search", params),
+          limit,
+          after
         );
 
         if (!data.data?.length) {

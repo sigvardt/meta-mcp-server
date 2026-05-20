@@ -119,4 +119,35 @@ describe("MetaApiClient business authorization gate", () => {
       isError: true,
     });
   });
+
+  it("does not tell users to regenerate tokens for page-owned content token-context errors", () => {
+    const error = {
+      metaError: {
+        code: 190,
+        error_subcode: 2069032,
+        message: "Access token is invalid or expired",
+      },
+    };
+
+    const message = handleApiError(error);
+
+    expect(message).toContain("Page-owned content");
+    expect(message).toContain("meta_list_pages");
+    expect(message).not.toContain("Generate a new long-lived token");
+  });
+
+  it("translates Meta's ad-account owner permission text into not-found-or-no-access guidance", () => {
+    const error = {
+      metaError: {
+        code: 200,
+        message: "Ad account owner has NOT grant ads_management permission",
+      },
+    };
+
+    const message = handleApiError(error);
+
+    expect(message).toContain("Ad account does not exist or you do not have access");
+    expect(message).toContain("meta_list_ad_accounts");
+    expect(message).not.toContain("regenerate your token");
+  });
 });
