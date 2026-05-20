@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <code>198 tools</code> &bull;
+  <code>199 tools</code> &bull;
   <code>7 platforms</code> &bull;
   <code>Graph API v21.0</code>
 </p>
@@ -26,7 +26,7 @@
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#install-with-mcpb">MCPB Download</a> &bull;
   <a href="#what-you-can-do">What You Can Do</a> &bull;
-  <a href="#complete-tool-reference">All 198 Tools</a> &bull;
+  <a href="#complete-tool-reference">All 199 Tools</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
   <a href="#architecture">Architecture</a>
 </p>
@@ -65,7 +65,7 @@ Add to your MCP client config:
 }
 ```
 
-That's it. Your AI assistant now has access to 198 Meta tools.
+That's it. Your AI assistant now has access to 199 Meta tools.
 
 > Need a token? Go to the [Graph API Explorer](https://developers.facebook.com/tools/explorer), select your app, and generate one. See [Configuration](#configuration) for details.
 
@@ -406,7 +406,7 @@ Full Instagram Business API — publishing with scheduling, DMs, broadcast chann
 | `meta_send_broadcast_channel_message` | Send a message to a broadcast channel |
 | `meta_create_broadcast_channel_poll` | Create a poll in a broadcast channel |
 
-### Ads Manager — 62 tools
+### Ads Manager — 63 tools
 
 Complete ad campaign lifecycle — create, optimize, test, analyze, and automate. Includes Advantage+ migration, A/B testing, and comprehensive pixel management.
 
@@ -472,6 +472,7 @@ Complete ad campaign lifecycle — create, optimize, test, analyze, and automate
 | `meta_list_business_assets` | List pages, ad accounts, IG accounts, and pixels across Business Manager |
 | `meta_create_ad_study` | Create an A/B test to compare campaigns or ad sets |
 | `meta_get_ad_studies` | List A/B tests for an ad account |
+| `meta_list_ad_studies` | Alias for listing A/B tests for an ad account |
 | `meta_get_ad_study_results` | Get A/B test results with winner and confidence level |
 | `meta_send_offline_event` | Send an offline conversion event for in-store purchases, phone orders, or other offline conversions |
 
@@ -562,14 +563,13 @@ Generate visual charts from data for reports and presentations.
 | `meta_generate_chart` | Create bar, line, pie, doughnut, radar charts as PNG images |
 | `meta_generate_comparison_chart` | Generate side-by-side comparison charts (A/B, period-over-period) |
 
-### Ad Library & Utility — 4 tools
+### Ad Library & Utility — 3 tools
 
 | Tool | Description |
 |:---|:---|
 | `meta_search_ad_library` | Search any advertiser's active ads — public transparency API |
 | `meta_debug_token` | Inspect your token: type, validity, expiry, permissions, associated app and user |
 | `meta_health_check` | Check server health: token status, cached tokens, API connectivity |
-| `meta_search_places` | Search Facebook Places (locations) by name or coordinates for post tagging |
 
 ---
 
@@ -705,7 +705,7 @@ src/
 └── tools/
     ├── pages.ts          52 Facebook Page tools
     ├── instagram.ts      37 Instagram tools
-    ├── ads.ts            62 Ads Manager tools
+    ├── ads.ts            63 Ads Manager tools
     ├── threads.ts        22 Threads tools
     ├── commerce.ts       10 Commerce/Catalog tools
     ├── conversions.ts     2 Conversions API tools
