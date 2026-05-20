@@ -2992,6 +2992,11 @@ Returns: Greeting text, ice breakers, get-started payload, persistent menu, comm
         const data = await client.getWithToken<MessengerProfileResponse>("/me/messenger_profile", pageToken, {
           fields: MESSENGER_PROFILE_FIELDS,
         });
+
+        if (response_format === "json") {
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
         return { content: [{ type: "text", text: truncate(formatMessengerProfileSummary(page_id, data), "automated responses") }] };
       } catch (error) {
         return errorResult(error);

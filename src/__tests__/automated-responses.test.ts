@@ -110,7 +110,7 @@ describe("meta_get_page_automated_responses", () => {
     expect(() => config.inputSchema.parse({ response_format: "markdown" })).toThrow();
   });
 
-  it("retrieves Messenger Profile fields with the cached Page token and returns a summary", async () => {
+  it("retrieves Messenger Profile fields with the cached Page token and returns raw JSON when requested", async () => {
     const state = mockAxios();
     mockMessengerProfileResponse(state);
     const { config, handler } = getAutomatedResponsesTool();
@@ -129,6 +129,25 @@ describe("meta_get_page_automated_responses", () => {
     expect(params.fields).toBe(MESSENGER_PROFILE_FIELDS);
     expect(params.access_token).toBe(PAGE_TOKEN_FIXTURE);
     expect(params.access_token).not.toBe(USER_TOKEN_FIXTURE);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}");
+    expect(payload.data[0].get_started.payload).toBe("GET_STARTED");
+    expect(payload.data[0].greeting[0].text).toBe("Hello from Messenger");
+    expect(result.content[0]?.text).not.toContain("# Automated Messaging Settings");
+  });
+
+  it("keeps the human Messenger Profile summary for markdown output", async () => {
+    const state = mockAxios();
+    mockMessengerProfileResponse(state);
+    const { config, handler } = getAutomatedResponsesTool();
+
+    const result = await handler(
+      config.inputSchema.parse({
+        page_id: TEST_AUTOMATED_PAGE_ID,
+        response_format: "markdown",
+      })
+    );
+
+    expect(result.isError).not.toBe(true);
     expect(result.content[0]?.text).toContain("Greeting:");
     expect(result.content[0]?.text).toContain("Ice Breakers:");
     expect(result.content[0]?.text).toContain("Persistent Menu:");
