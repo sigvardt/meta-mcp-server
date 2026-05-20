@@ -39,6 +39,8 @@ type PixelStatsArgs = {
   end_time?: string;
   aggregation: (typeof VALID_AGGREGATIONS)[number];
   event?: string;
+  aggregation_window?: "hour" | "day" | "week";
+  top_n?: number;
   response_format: "markdown" | "json";
 };
 
@@ -138,5 +140,36 @@ describe("meta_get_pixel_stats aggregation", () => {
     expect(result.isError).not.toBe(true);
     expect(state.requests).toHaveLength(1);
     expect(state.requests[0]?.params).toMatchObject({ aggregation: "device_os" });
+  });
+
+  it("passes aggregation_window and trims JSON output with top_n", async () => {
+    const state = mockAxios();
+    const { config, handler } = getPixelStatsTool();
+    vi.mocked(state.axiosInstance.get).mockImplementationOnce((url: string, config?: AxiosRequestConfig) => {
+      state.requests.push({ method: "get", url, params: config?.params });
+      return Promise.resolve(
+        mockSuccess({
+          data: [
+            { event: "Purchase", count: 3 },
+            { event: "Lead", count: 2 },
+          ],
+        }) as never
+      );
+    });
+
+    const result = await handler(
+      config.inputSchema.parse({
+        pixel_id: TEST_PIXEL_ID,
+        aggregation: "event",
+        aggregation_window: "day",
+        top_n: 1,
+        response_format: "json",
+      })
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(state.requests[0]?.params).toMatchObject({ aggregation_window: "day" });
+    expect(JSON.parse(result.content[0]?.text ?? "{}"))
+      .toMatchObject({ data: [{ event: "Purchase", count: 3 }] });
   });
 });

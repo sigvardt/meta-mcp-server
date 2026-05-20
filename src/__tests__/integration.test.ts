@@ -84,7 +84,7 @@ describe("MCP Server Integration", () => {
     expect((response as any).result.capabilities.tools).toBeDefined();
   });
 
-  it("lists all 198 tools via tools/list", async () => {
+  it("lists all 199 tools via tools/list", async () => {
     const response = await sendMcpRequest({
       jsonrpc: "2.0",
       id: 1,
@@ -95,7 +95,7 @@ describe("MCP Server Integration", () => {
     const tools = (response as any).result?.tools;
     expect(tools).toBeDefined();
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(198);
+    expect(tools.length).toBe(199);
 
     // Verify key tools exist
     const names = tools.map((t: any) => t.name);
@@ -103,6 +103,7 @@ describe("MCP Server Integration", () => {
     expect(names).toContain("meta_publish_instagram_photo");
     expect(names).toContain("threads_publish_text");
     expect(names).toContain("meta_search_ad_library");
+    expect(names).toContain("meta_list_ad_studies");
     expect(names).toContain("meta_get_campaign");
     expect(names).toContain("meta_check_instagram_publishing_limit");
     expect(names).toContain("meta_publish_page_story");
