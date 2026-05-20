@@ -10,23 +10,22 @@
 </p>
 
 <p align="center">
-  <code>199 tools</code> &bull;
+  <code>200+ tools</code> &bull;
   <code>7 platforms</code> &bull;
   <code>Graph API v21.0</code>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@oliverames/meta-mcp-server"><img src="https://img.shields.io/npm/v/@oliverames/meta-mcp-server?style=flat-square&color=f5a542" alt="npm"></a>
-  <a href="https://github.com/oliverames/meta-mcp-server/releases/tag/v2.0.2"><img src="https://img.shields.io/github/v/release/oliverames/meta-mcp-server?style=flat-square&color=f5a542&label=MCPB" alt="MCPB release"></a>
+  <a href="https://www.npmjs.com/package/@sigvardt/meta-mcp-server"><img src="https://img.shields.io/npm/v/@sigvardt/meta-mcp-server?style=flat-square&color=f5a542" alt="npm"></a>
+  <a href="https://github.com/sigvardt/meta-mcp-server/releases"><img src="https://img.shields.io/github/v/release/sigvardt/meta-mcp-server?style=flat-square&color=f5a542" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-f5a542?style=flat-square" alt="License"></a>
-  <a href="https://www.buymeacoffee.com/oliverames"><img src="https://img.shields.io/badge/Buy_Me_a_Coffee-support-f5a542?style=flat-square&logo=buy-me-a-coffee&logoColor=white" alt="Buy Me a Coffee"></a>
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#install-with-mcpb">MCPB Download</a> &bull;
+  <a href="#releases">Releases</a> &bull;
   <a href="#what-you-can-do">What You Can Do</a> &bull;
-  <a href="#complete-tool-reference">All 199 Tools</a> &bull;
+  <a href="#complete-tool-reference">200+ Tools</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
   <a href="#architecture">Architecture</a>
 </p>
@@ -41,38 +40,30 @@ Every tool returns actionable error messages — not cryptic API codes. Token ex
 
 ## Quick Start
 
-### Install with MCPB
-
-For Claude Desktop and other MCPB-compatible clients, download the local bundle from the [v2.0.2 release](https://github.com/oliverames/meta-mcp-server/releases/tag/v2.0.2):
-
-[Download `meta-mcp-server-2.0.2.mcpb`](https://github.com/oliverames/meta-mcp-server/releases/download/v2.0.2/meta-mcp-server-2.0.2.mcpb)
-
-The bundle includes the Meta favicon, production runtime dependencies, and setup prompts for Meta and optional Threads access tokens.
-
-Add to your MCP client config:
+Add this entry to `claude_desktop_config.json` under `mcpServers`:
 
 ```json
-{
-  "mcpServers": {
-    "meta": {
-      "command": "npx",
-      "args": ["-y", "@oliverames/meta-mcp-server"],
-      "env": {
-        "META_ACCESS_TOKEN": "your_token_here"
-      }
-    }
+"meta-mcp": {
+  "command": "npx",
+  "args": ["-y", "@sigvardt/meta-mcp-server"],
+  "env": {
+    "META_ACCESS_TOKEN": "<long-lived-token>"
   }
 }
 ```
 
-That's it. Your AI assistant now has access to 199 Meta tools.
+That's it. Your AI assistant now has access to 200+ Meta tools. `META_ACCESS_TOKEN` is the only required environment variable.
 
 > Need a token? Go to the [Graph API Explorer](https://developers.facebook.com/tools/explorer), select your app, and generate one. See [Configuration](#configuration) for details.
+
+### Releases
+
+Claude Desktop pulls the latest published version on each cold start; check the npm page for current version.
 
 ### From Source
 
 ```bash
-git clone https://github.com/oliverames/meta-mcp-server.git
+git clone https://github.com/sigvardt/meta-mcp-server.git
 cd meta-mcp-server
 npm install && npm run build
 ```
@@ -303,7 +294,7 @@ Debug tokens, check permissions, monitor rate limits, verify pixel health, and m
 
 ## Complete Tool Reference
 
-### Facebook Pages — 52 tools
+### Pages
 
 Everything a brand needs to manage their Facebook presence, messaging, and live broadcasts.
 
@@ -362,7 +353,7 @@ Everything a brand needs to manage their Facebook presence, messaging, and live 
 | `meta_set_away_message` | Set the away/out-of-office message |
 | `meta_set_greeting` | Set the Messenger greeting text |
 
-### Instagram — 37 tools
+### Instagram
 
 Full Instagram Business API — publishing with scheduling, DMs, broadcast channels, engagement, discovery, and analytics.
 
@@ -406,7 +397,7 @@ Full Instagram Business API — publishing with scheduling, DMs, broadcast chann
 | `meta_send_broadcast_channel_message` | Send a message to a broadcast channel |
 | `meta_create_broadcast_channel_poll` | Create a poll in a broadcast channel |
 
-### Ads Manager — 63 tools
+### Ads
 
 Complete ad campaign lifecycle — create, optimize, test, analyze, and automate. Includes Advantage+ migration, A/B testing, and comprehensive pixel management.
 
@@ -476,7 +467,7 @@ Complete ad campaign lifecycle — create, optimize, test, analyze, and automate
 | `meta_get_ad_study_results` | Get A/B test results with winner and confidence level |
 | `meta_send_offline_event` | Send an offline conversion event for in-store purchases, phone orders, or other offline conversions |
 
-### Threads — 22 tools
+### Threads
 
 Full Threads API — publishing with GIFs, reply controls, location tagging, and analytics.
 
@@ -505,7 +496,7 @@ Full Threads API — publishing with GIFs, reply controls, location tagging, and
 | `threads_get_user_insights` | Get account-level metrics with demographic breakdowns |
 | `threads_check_rate_limits` | Check your current publishing rate limit status |
 
-### Commerce — 10 tools
+### Commerce
 
 Product catalog management for Facebook and Instagram shops.
 
@@ -522,7 +513,7 @@ Product catalog management for Facebook and Instagram shops.
 | `meta_list_product_feeds` | List product feeds for a catalog |
 | `meta_list_product_sets` | List product sets (subgroups) in a catalog |
 
-### Conversions API — 2 tools
+### Conversions API
 
 Server-side event tracking for conversion optimization.
 
@@ -531,7 +522,7 @@ Server-side event tracking for conversion optimization.
 | `meta_send_conversion_event` | Send a server-side conversion event (Purchase, Lead, etc.) to a pixel |
 | `meta_test_conversion_events` | Test CAPI setup without affecting production data |
 
-### Audiences — 5 tools
+### Ads Audiences
 
 Custom and lookalike audience management for ad targeting.
 
@@ -543,7 +534,7 @@ Custom and lookalike audience management for ad targeting.
 | `meta_create_lookalike_audience` | Create a lookalike audience from a source audience |
 | `meta_delete_custom_audience` | Delete a custom audience |
 
-### Insights — 4 tools
+### Insights
 
 Performance analytics across the ad hierarchy with 37 metrics, 15 date presets, and 8 breakdown dimensions.
 
@@ -554,7 +545,7 @@ Performance analytics across the ad hierarchy with 37 metrics, 15 date presets, 
 | `meta_get_adset_insights` | Per-ad-set performance |
 | `meta_get_ad_insights` | Per-ad performance |
 
-### Charts — 2 tools
+### Insights Charts
 
 Generate visual charts from data for reports and presentations.
 
@@ -563,7 +554,7 @@ Generate visual charts from data for reports and presentations.
 | `meta_generate_chart` | Create bar, line, pie, doughnut, radar charts as PNG images |
 | `meta_generate_comparison_chart` | Generate side-by-side comparison charts (A/B, period-over-period) |
 
-### Ad Library & Utility — 3 tools
+### Ad Library
 
 | Tool | Description |
 |:---|:---|
@@ -768,16 +759,9 @@ Development conventions: Zod `.strict()` schemas, `response_format` parameter on
 ---
 
 <p align="center">
-  <a href="https://www.buymeacoffee.com/oliverames">
-    <img src="https://img.shields.io/badge/Buy_Me_a_Coffee-support-f5a542?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white" alt="Buy Me a Coffee">
-  </a>
-</p>
-
-<p align="center">
   <sub>
-    Built by <a href="https://ames.consulting">Oliver Ames</a> in Vermont
-    &bull; <a href="https://github.com/oliverames">GitHub</a>
-    &bull; <a href="https://linkedin.com/in/oliverames">LinkedIn</a>
-    &bull; <a href="https://bsky.app/profile/oliverames.bsky.social">Bluesky</a>
+    Maintained by <a href="https://github.com/sigvardt">sigvardt</a>
+    &bull; <a href="https://github.com/sigvardt/meta-mcp-server">GitHub</a>
+    &bull; <a href="https://www.npmjs.com/package/@sigvardt/meta-mcp-server">npm</a>
   </sub>
 </p>
