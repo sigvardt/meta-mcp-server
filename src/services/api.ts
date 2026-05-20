@@ -14,6 +14,38 @@ type PageTokenResponse = {
   access_token: string;
 };
 
+function stripAccessTokenFromUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.searchParams.delete("access_token");
+    return url.toString();
+  } catch {
+    return value.replace(/([?&])access_token=[^&]*&?/g, (_match, separator: string) =>
+      separator === "?" ? "?" : ""
+    ).replace(/[?&]$/, "");
+  }
+}
+
+function sanitizeGraphResponse<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeGraphResponse(item)) as T;
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if ((key === "next" || key === "previous") && typeof child === "string") {
+      sanitized[key] = stripAccessTokenFromUrl(child);
+    } else {
+      sanitized[key] = sanitizeGraphResponse(child);
+    }
+  }
+  return sanitized as T;
+}
+
 export class MetaApiClient {
   private static readonly PAGE_TOKEN_REFRESH_COOLDOWN_MS = 5000;
   private static readonly RATE_LIMIT_RETRY_BACKOFF_MS = [30_000, 60_000, 120_000] as const;
@@ -57,7 +89,7 @@ export class MetaApiClient {
         params: { access_token: this.userToken, ...params },
         timeout: 30000,
       });
-      return response.data as T;
+      return sanitizeGraphResponse(response.data as T);
     });
     this.addAllowedIdsFromResponse(path, params, data);
     return data;
@@ -72,7 +104,7 @@ export class MetaApiClient {
       params: { access_token: this.userToken, ...params },
       timeout: 30000,
     });
-    return response.data as T;
+    return sanitizeGraphResponse(response.data as T);
   }
 
   async getWithToken<T>(
@@ -87,7 +119,7 @@ export class MetaApiClient {
           params: { access_token: accessToken, ...params },
           timeout: 30000,
         });
-        return response.data as T;
+        return sanitizeGraphResponse(response.data as T);
       })
     );
     this.addAllowedIdsFromResponse(path, params, data);
@@ -436,7 +468,7 @@ export class MetaApiClient {
       params: { access_token: token, ...params },
       timeout: 30000,
     });
-    return response.data as T;
+    return sanitizeGraphResponse(response.data as T);
   }
 
   async threadsPost<T>(path: string, fields: Record<string, unknown> = {}): Promise<T> {

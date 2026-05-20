@@ -37,6 +37,15 @@ type McpErrorResult = {
   structuredContent?: { code: string; message: string };
 };
 
+type McpTextResult = {
+  content: Array<{ type: "text"; text: string }>;
+};
+
+type DataEnvelope<T> = {
+  data?: T[];
+  paging?: unknown;
+};
+
 type MetaErrorDetails = {
   code?: number;
   error_subcode?: number;
@@ -212,6 +221,14 @@ export function errorResult(error: unknown): McpErrorResult {
   };
 }
 
+export function jsonResult(value: unknown): McpTextResult {
+  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+}
+
+export function jsonDataResult<T>(response: DataEnvelope<T>, data: T[] = response.data ?? []): McpTextResult {
+  return jsonResult({ ...response, data });
+}
+
 export function handleApiError(error: unknown): string {
   if (error instanceof BusinessAuthorizationError) {
     return `Error [BUSINESS_AUTH_DENIED]: ${error.message}`;
@@ -224,6 +241,7 @@ export function handleApiError(error: unknown): string {
       if (metaError) {
         const code = metaError.code;
         const msg = metaError.message ?? metaError.error_user_msg;
+        const msgText = typeof msg === "string" ? msg : String(msg ?? "Unknown error");
         const subcode = metaError.error_subcode;
 
         // Provide actionable guidance for common error codes
@@ -236,12 +254,13 @@ export function handleApiError(error: unknown): string {
         }
         if (code === 10 || code === 200) {
           return (
-            `Error: Missing permission (${code}${subcode ? `/${subcode}` : ""}): ${msg}\n\n` +
-            `Grant the required permission at https://developers.facebook.com/tools/explorer/ and regenerate your token.`
+            `Error: Missing permission or app-review gated access (${code}${subcode ? `/${subcode}` : ""}): ${msgText}\n\n` +
+            `Grant the required permission at https://developers.facebook.com/tools/explorer/ and regenerate your token. ` +
+            `For public content, Page tabs, Instagram messaging, and Ad Library endpoints, the app must also have the relevant Meta App Review feature approved; a new token alone will not unlock those endpoints.`
           );
         }
 
-        return `Error (${code}${subcode ? `/${subcode}` : ""}): ${msg}`;
+        return `Error (${code}${subcode ? `/${subcode}` : ""}): ${msgText}`;
       }
       switch (error.response.status) {
         case 400:
