@@ -60,6 +60,15 @@ That's it. Your AI assistant now has access to 200+ Meta tools. `META_ACCESS_TOK
 
 Claude Desktop pulls the latest published version on each cold start; check the npm page for current version.
 
+Future releases are published by GitHub Actions through npm Trusted Publishing. After the first manual npm publish creates the package record, configure the package's trusted publisher on npmjs.com with:
+
+- Publisher: GitHub Actions
+- Repository: `sigvardt/meta-mcp-server`
+- Workflow: `npm-publish.yml`
+- Environment: `npm`
+
+Then release by bumping the version, tagging `vX.Y.Z`, and pushing the tag.
+
 ### From Source
 
 ```bash
