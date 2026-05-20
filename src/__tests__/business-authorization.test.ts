@@ -41,13 +41,25 @@ afterEach(() => {
 });
 
 describe("BusinessAuthorizationService", () => {
-  it("seeds the default business ID when META_ALLOWED_BUSINESS_IDS is unset", () => {
+  it("allows all resource IDs when META_ALLOWED_BUSINESS_IDS is unset", () => {
     vi.stubEnv("META_ALLOWED_BUSINESS_IDS", undefined);
 
     const service = new BusinessAuthorizationService();
 
     expect(service.isAllowed(DEFAULT_BUSINESS_ID)).toBe(true);
-    expect(service.isAllowed("000000")).toBe(false);
+    expect(service.isAllowed("000000")).toBe(true);
+    expect(service.getSnapshot()).toEqual({ all: ["*"] });
+    expect(() => service.assertPathAllowed("/000000/feed", {})).not.toThrow();
+  });
+
+  it("skips bootstrap when META_ALLOWED_BUSINESS_IDS is unset", async () => {
+    vi.stubEnv("META_ALLOWED_BUSINESS_IDS", undefined);
+    const service = new BusinessAuthorizationService();
+    const client = createBootstrapClient(successfulBootstrapEdges);
+
+    await service.bootstrap(client);
+
+    expect(client.getRaw).not.toHaveBeenCalled();
   });
 
   it("uses META_ALLOWED_BUSINESS_IDS as a replacement seed list", () => {
@@ -157,14 +169,13 @@ describe("BusinessAuthorizationService", () => {
     expect(() => service.assertPathAllowed("/act_1234567/campaigns", {})).not.toThrow();
   });
 
-  it("falls back to the default seed when META_ALLOWED_BUSINESS_IDS is empty and still denies other IDs", () => {
+  it("allows all resource IDs when META_ALLOWED_BUSINESS_IDS is empty", () => {
     vi.stubEnv("META_ALLOWED_BUSINESS_IDS", "");
     const service = new BusinessAuthorizationService();
-    const assertDeniedPath = () => service.assertPathAllowed("/000000/feed", {});
 
     expect(service.isAllowed(DEFAULT_BUSINESS_ID)).toBe(true);
-    expect(assertDeniedPath).toThrow(BusinessAuthorizationError);
-    expect(assertDeniedPath).toThrow("000000");
+    expect(service.isAllowed("000000")).toBe(true);
+    expect(() => service.assertPathAllowed("/000000/feed", {})).not.toThrow();
   });
 
   it("bootstraps IDs from successful business edges", async () => {

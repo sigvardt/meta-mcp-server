@@ -32,7 +32,11 @@ if (token) {
   const authAllowlistSummary = Object.entries(authService.getSnapshot())
     .map(([type, ids]) => `${ids.length} ${type}`)
     .join(", ");
-  console.error(`[meta-mcp] business-auth allowlist: ${authAllowlistSummary}`);
+  console.error(
+    authAllowlistSummary === "1 all"
+      ? "[meta-mcp] business-auth allowlist: unrestricted (META_ALLOWED_BUSINESS_IDS not set)"
+      : `[meta-mcp] business-auth allowlist: ${authAllowlistSummary}`
+  );
 } else {
   console.error(
     "[meta-mcp] META_ACCESS_TOKEN not set; skipping business-auth bootstrap."

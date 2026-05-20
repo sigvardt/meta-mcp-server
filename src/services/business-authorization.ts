@@ -1,6 +1,5 @@
 import { GRAPH_API_BASE } from "../constants.js";
 
-const DEFAULT_ALLOWED_BUSINESS_IDS = "833812607571849";
 const KNOWN_RESOURCE_TYPES = [
   "businesses",
   "ad_accounts",
@@ -103,17 +102,15 @@ export class BusinessAuthorizationService {
   private allowedIds: Map<string, Set<string>>;
   private readonly seedBusinessIds: Set<string>;
   private readonly bootstrapMode: BootstrapMode;
+  private readonly unrestricted: boolean;
 
   constructor() {
-    const configuredBusinessIds =
-      process.env.META_ALLOWED_BUSINESS_IDS?.trim() || DEFAULT_ALLOWED_BUSINESS_IDS;
+    const configuredBusinessIds = process.env.META_ALLOWED_BUSINESS_IDS?.trim();
+    this.unrestricted = !configuredBusinessIds;
 
     this.seedBusinessIds = new Set(
-      splitIdValues(configuredBusinessIds).map((id) => normalizeResourceId(id))
+      splitIdValues(configuredBusinessIds ?? "").map((id) => normalizeResourceId(id))
     );
-    if (this.seedBusinessIds.size === 0) {
-      this.seedBusinessIds.add(DEFAULT_ALLOWED_BUSINESS_IDS);
-    }
 
     this.bootstrapMode =
       process.env.META_AUTH_BOOTSTRAP_MODE === "warn" ? "warn" : "fail-closed";
@@ -121,6 +118,8 @@ export class BusinessAuthorizationService {
   }
 
   async bootstrap(client: GraphBootstrapClient): Promise<void> {
+    if (this.unrestricted) return;
+
     const bootstrappedIds = this.createSeedAllowlist();
 
     try {
@@ -222,6 +221,8 @@ export class BusinessAuthorizationService {
   }
 
   isAllowed(id: string): boolean {
+    if (this.unrestricted) return true;
+
     const normalizedId = normalizeResourceId(id);
     if (!normalizedId) return false;
     if (this.seedBusinessIds.has(normalizedId)) return true;
@@ -233,6 +234,8 @@ export class BusinessAuthorizationService {
   }
 
   assertPathAllowed(path: string, params: Record<string, unknown>): void {
+    if (this.unrestricted) return;
+
     const normalizedPath = normalizeGraphPath(path);
     if (BYPASS_PATHS.some((pattern) => pattern.test(normalizedPath.pathname))) {
       return;
@@ -263,6 +266,10 @@ export class BusinessAuthorizationService {
   }
 
   getSnapshot(): Record<string, string[]> {
+    if (this.unrestricted) {
+      return { all: ["*"] };
+    }
+
     const snapshot: Record<string, string[]> = {};
     for (const [type, ids] of this.allowedIds.entries()) {
       snapshot[type] = Array.from(ids).sort();
