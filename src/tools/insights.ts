@@ -35,8 +35,8 @@ const BreakdownSchema = z
       "region",
       "device_platform",
       "publisher_platform",
+      "platform_position",
       "impression_device",
-      "placement",
     ])
   )
   .optional()

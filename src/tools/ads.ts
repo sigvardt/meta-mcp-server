@@ -1,9 +1,38 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MetaApiClient } from "../services/api.js";
-import { errorResult, truncate, truncateField, formatNumber, formatDate, formatBudget, buildPaginationNote, ResponseFormatSchema } from "../services/utils.js";
+import { errorResult, truncate, truncateField, formatNumber, formatDate, formatBudget, buildPaginationNote, ResponseFormatSchema, jsonDataResult } from "../services/utils.js";
 import { AD_ACCOUNT_FIELDS, CAMPAIGN_FIELDS, ADSET_FIELDS, AD_FIELDS, CREATIVE_FIELDS } from "../constants.js";
 import { AdAccount, Campaign, AdSet, Ad, AdCreative, MetaPaginatedResponse } from "../types.js";
+
+type CustomConversionRecord = {
+  id: string;
+  name: string;
+  pixel?: { id: string };
+  custom_event_type?: string;
+  rule?: string | Record<string, unknown>;
+  creation_time?: string;
+};
+
+function parseCustomConversionRules(
+  data: MetaPaginatedResponse<CustomConversionRecord>
+): MetaPaginatedResponse<CustomConversionRecord> {
+  return {
+    ...data,
+    data: data.data.map((conversion) => {
+      if (typeof conversion.rule !== "string") return conversion;
+      try {
+        return { ...conversion, rule: JSON.parse(conversion.rule) as Record<string, unknown> };
+      } catch {
+        return conversion;
+      }
+    }),
+  };
+}
+
+function isSystemGeneratedAdLabel(label: { name?: string }): boolean {
+  return label.name?.startsWith("placement_asset_") ?? false;
+}
 
 export function registerAdsTools(server: McpServer, client: MetaApiClient): void {
   // ─── List Ad Accounts ─────────────────────────────────────────────────────
@@ -33,11 +62,14 @@ Call this first to get ad account IDs needed for campaign and insights tools.`,
         });
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No ad accounts found." }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
         }
 
         const lines = [`# Meta Ad Accounts (${data.data.length})`, ""];
@@ -1165,6 +1197,9 @@ Args:
         });
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No users found for this ad account." }] };
         }
 
@@ -1265,17 +1300,20 @@ Returns: Interest IDs and names to use in ad set targeting.`,
     },
     async ({ q, limit, response_format }) => {
       try {
-        const data = await client.get<{ data: Array<{ id: string; name: string; audience_size_lower_bound?: number; audience_size_upper_bound?: number; path?: string[]; topic?: string }> }>(
+        const data = await client.get<MetaPaginatedResponse<{ id: string; name: string; audience_size_lower_bound?: number; audience_size_upper_bound?: number; path?: string[]; topic?: string }>>(
           "/search",
           { type: "adinterest", q, limit }
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: `No interests found for "${q}".` }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
         }
 
         const lines = [`# Targeting Interests: "${q}" (${data.data.length})`, ""];
@@ -1315,17 +1353,20 @@ Returns: Location keys to use in ad set targeting.`,
     },
     async ({ q, type, limit, response_format }) => {
       try {
-        const data = await client.get<{ data: Array<{ key: string; name: string; type: string; country_code?: string; region?: string; supports_city?: boolean; supports_region?: boolean }> }>(
+        const data = await client.get<MetaPaginatedResponse<{ key: string; name: string; type: string; country_code?: string; region?: string; supports_city?: boolean; supports_region?: boolean }>>(
           "/search",
           { type: "adgeolocation", q, location_types: `["${type}"]`, limit }
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: `No geolocations found for "${q}".` }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
         }
 
         const lines = [`# Geolocations: "${q}" (${data.data.length})`, ""];
@@ -1361,17 +1402,20 @@ Args:
     },
     async ({ q, type, limit, response_format }) => {
       try {
-        const data = await client.get<{ data: Array<{ id: string; name: string }> }>(
+        const data = await client.get<MetaPaginatedResponse<{ id: string; name: string }>>(
           "/search",
           { type, q, limit }
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: `No results found for "${q}" (${type}).` }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
         }
 
         const lines = [`# ${type}: "${q}" (${data.data.length})`, ""];
@@ -1462,7 +1506,7 @@ Returns: Estimated daily outcomes (reach, impressions, actions) and bid suggesti
       try {
         const data = await client.get<{ data: unknown[] }>(
           `/${adset_id}/delivery_estimate`,
-          { fields: "daily_outcomes_curve,estimate_dau,estimate_mau,bid_estimate" }
+          { fields: "daily_outcomes_curve,estimate_dau,estimate_ready,bid_estimate" }
         );
 
         if (response_format === "json") {
@@ -1617,7 +1661,9 @@ Args:
   - start_time (string, optional): ISO date for start of range
   - end_time (string, optional): ISO date for end of range
   - aggregation (string, optional): one of browser_type, custom_data_field, device_os, device_type, event, host, match_keys, had_pii, pixel_fire, event_detection_method, url, event_value_count, url_by_rule, event_total_counts, event_source, event_processing_results. Common picks: "event" for event-name breakdowns, "device_os" for OS breakdowns, and "url" for URL breakdowns.
-  - event (string, optional): Filter to specific event like "Purchase"`,
+  - event (string, optional): Filter to specific event like "Purchase"
+  - aggregation_window (string, optional): hour, day, or week
+  - top_n (number, optional): Return only the first N rows after Meta ordering`,
       inputSchema: z
         .object({
           pixel_id: z.string(),
@@ -1644,32 +1690,37 @@ Args:
             ])
             .default("event"),
           event: z.string().optional(),
+          aggregation_window: z.enum(["hour", "day", "week"]).optional(),
+          top_n: z.number().int().min(1).max(100).optional(),
           response_format: ResponseFormatSchema,
         })
         .strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ pixel_id, start_time, end_time, aggregation, event, response_format }) => {
+    async ({ pixel_id, start_time, end_time, aggregation, event, aggregation_window, top_n, response_format }) => {
       try {
         const params: Record<string, string> = { aggregation };
         if (start_time) params.start_time = start_time;
         if (end_time) params.end_time = end_time;
         if (event) params.event = event;
+        if (aggregation_window) params.aggregation_window = aggregation_window;
 
         const data = await client.get<{ data: { timestamp?: string; count?: number; event?: string }[] }>(
           `/${pixel_id}/stats`, params
         );
+        const displayedData = top_n ? data.data.slice(0, top_n) : data.data;
+        const outputData = { ...data, data: displayedData };
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          return jsonDataResult(outputData);
         }
 
-        if (!data.data?.length) {
+        if (!displayedData.length) {
           return { content: [{ type: "text", text: "No stats found for this pixel." }] };
         }
 
         const lines = [`# Pixel Stats (\`${pixel_id}\`)`, "", `| Timestamp | Event | Count |`, `|-----------|-------|-------|`];
-        for (const row of data.data) {
+        for (const row of displayedData) {
           lines.push(`| ${row.timestamp ? formatDate(row.timestamp) : "—"} | ${row.event ?? "—"} | ${row.count ?? 0} |`);
         }
         return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1815,22 +1866,24 @@ Args:
     },
     async ({ ad_account_id, response_format }) => {
       try {
-        const data = await client.get<MetaPaginatedResponse<{
-          id: string; name: string; pixel?: { id: string }; custom_event_type?: string; rule?: string; creation_time?: string;
-        }>>(`/${ad_account_id}/customconversions`, {
+        const data = await client.get<MetaPaginatedResponse<CustomConversionRecord>>(`/${ad_account_id}/customconversions`, {
           fields: "id,name,pixel,custom_event_type,rule,creation_time",
         });
+        const parsedData = parseCustomConversionRules(data);
 
-        if (!data.data?.length) {
+        if (!parsedData.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(parsedData);
+          }
           return { content: [{ type: "text", text: "No custom conversions found." }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          return jsonDataResult(parsedData);
         }
 
-        const lines = [`# Custom Conversions (${data.data.length})`, ""];
-        for (const cc of data.data) {
+        const lines = [`# Custom Conversions (${parsedData.data.length})`, ""];
+        for (const cc of parsedData.data) {
           lines.push(`## ${cc.name} (\`${cc.id}\`)`);
           if (cc.custom_event_type) lines.push(`- **Event type**: ${cc.custom_event_type}`);
           if (cc.pixel?.id) lines.push(`- **Pixel**: \`${cc.pixel.id}\``);
@@ -1988,33 +2041,49 @@ Args:
       description: `Lists ad labels for an ad account. Labels help organize campaigns, ad sets, and ads.
 
 Args:
-  - ad_account_id (string): Ad account ID`,
+  - ad_account_id (string): Ad account ID
+  - limit (number): Max results (default 25)
+  - after (string, optional): Pagination cursor
+  - include_system_labels (boolean): Include Meta-generated placement_asset_* labels (default false)`,
       inputSchema: z
         .object({
           ad_account_id: z.string(),
+          limit: z.number().int().min(1).max(100).default(25),
+          after: z.string().optional(),
+          include_system_labels: z.boolean().default(false),
           response_format: ResponseFormatSchema,
         })
         .strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ ad_account_id, response_format }) => {
+    async ({ ad_account_id, limit, after, include_system_labels, response_format }) => {
       try {
+        const params: Record<string, unknown> = {
+          fields: "id,name,created_time",
+          limit,
+        };
+        if (after) params.after = after;
+
         const data = await client.get<MetaPaginatedResponse<{
           id: string; name: string; created_time?: string;
-        }>>(`/${ad_account_id}/adlabels`, {
-          fields: "id,name,created_time",
-        });
+        }>>(`/${ad_account_id}/adlabels`, params);
+        const labels = include_system_labels
+          ? data.data
+          : data.data.filter((label) => !isSystemGeneratedAdLabel(label));
 
-        if (!data.data?.length) {
+        if (!labels.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data, labels);
+          }
           return { content: [{ type: "text", text: "No ad labels found." }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          return jsonDataResult(data, labels);
         }
 
-        const lines = [`# Ad Labels (${data.data.length})`, ""];
-        for (const label of data.data) {
+        const lines = [`# Ad Labels (${labels.length})`, ""];
+        for (const label of labels) {
           lines.push(`- **${label.name}** (\`${label.id}\`)${label.created_time ? ` — Created: ${formatDate(label.created_time)}` : ""}`);
         }
         return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -2067,21 +2136,29 @@ Args:
 
 Args:
   - ad_account_id (string): Ad account ID
-  - limit (number): Max results (default 20)`,
+  - limit (number): Max results (default 20)
+  - thumbnails_limit (number): Number of thumbnails per video to request (0 omits thumbnails, default 1)`,
       inputSchema: z
         .object({
           ad_account_id: z.string(),
           limit: z.number().int().min(1).max(100).default(20),
           after: z.string().optional(),
+          thumbnails_limit: z.number().int().min(0).max(20).default(1),
           response_format: ResponseFormatSchema,
         })
         .strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ ad_account_id, limit, after, response_format }) => {
+    async ({ ad_account_id, limit, after, thumbnails_limit, response_format }) => {
       try {
+        const fields = ["id", "title", "length", "created_time", "updated_time"];
+        if (thumbnails_limit > 0) {
+          fields.push(`thumbnails.limit(${thumbnails_limit}){uri,width,height,scale,is_preferred}`);
+        }
+        fields.push("permalink_url");
+
         const params: Record<string, unknown> = {
-          fields: "id,title,length,created_time,updated_time,thumbnails,permalink_url",
+          fields: fields.join(","),
           limit,
         };
         if (after) params.after = after;
@@ -2518,32 +2595,40 @@ Args:
       description: `Browses all available targeting category types for ad targeting.
 
 Args:
-  - type (string): Category type — adTargetingCategory, adcountry, adlocale, adlanguage`,
+  - type (string): Category type — adTargetingCategory, adcountry, adlocale, adlanguage
+  - limit (number): Max results (default 25)
+  - after (string, optional): Pagination cursor`,
       inputSchema: z
         .object({
           type: z.enum(["adTargetingCategory", "adcountry", "adlocale"]).default("adTargetingCategory"),
           class: z.enum(["interests", "behaviors", "demographics", "life_events", "industries", "income", "family_statuses", "user_device", "user_os"]).optional().describe("Sub-class filter (for adTargetingCategory)"),
+          limit: z.number().int().min(1).max(100).default(25),
+          after: z.string().optional(),
           response_format: ResponseFormatSchema,
         })
         .strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ type, class: subclass, response_format }) => {
+    async ({ type, class: subclass, limit, after, response_format }) => {
       try {
-        const params: Record<string, unknown> = { type };
+        const params: Record<string, unknown> = { type, limit };
         if (subclass) params.class = subclass;
+        if (after) params.after = after;
 
-        const data = await client.get<{ data: Array<{ id: string; name: string; type?: string; path?: string[]; audience_size?: number; description?: string }> }>(
+        const data = await client.get<MetaPaginatedResponse<{ id: string; name: string; type?: string; path?: string[]; audience_size?: number; description?: string }>>(
           "/search",
           params
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No targeting categories found." }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
         }
 
         const lines = [`# Targeting Categories: ${type}${subclass ? ` (${subclass})` : ""} (${data.data.length})`, ""];
@@ -2663,11 +2748,14 @@ Returns asset details including IDs, names, and type-specific metadata.`,
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: `No ${asset_type.replace("owned_", "")} found.` }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
         }
 
         const label = asset_type.replace("owned_", "").replace(/_/g, " ");
@@ -2822,11 +2910,78 @@ Returns: List of studies with name, type, status, dates, and results.`,
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No A/B tests found for this ad account." }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }] };
+          return jsonDataResult(data);
+        }
+
+        const lines = [`# A/B Tests (${data.data.length})`, ""];
+        for (const study of data.data) {
+          lines.push(`## ${study.name ?? "Unnamed"} (\`${study.id}\`)`);
+          if (study.type) lines.push(`- **Type**: ${study.type}`);
+          if (study.description) lines.push(`- **Description**: ${truncateField(study.description as string, 200)}`);
+          if (study.start_time) lines.push(`- **Start**: ${formatDate(study.start_time as string)}`);
+          if (study.end_time) lines.push(`- **End**: ${formatDate(study.end_time as string)}`);
+          if (study.cells && Array.isArray(study.cells)) {
+            lines.push(`- **Cells**: ${(study.cells as Array<Record<string, unknown>>).length}`);
+          }
+          if (study.results) lines.push(`- **Results**: ${JSON.stringify(study.results)}`);
+          lines.push("");
+        }
+        return { content: [{ type: "text", text: truncate(lines.join("\n"), "A/B tests") }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "meta_list_ad_studies",
+    {
+      title: "List A/B Tests (Ad Studies)",
+      description: `Alias for meta_get_ad_studies. Lists A/B tests (ad studies) for a Meta ad account.
+
+Args:
+  - ad_account_id (string): Ad account ID (e.g., act_123456789)
+  - limit (number): Max results (1–50, default 10)`,
+      inputSchema: z
+        .object({
+          ad_account_id: z.string().describe("Ad account ID (e.g., act_123456789)"),
+          limit: z.number().int().min(1).max(50).default(10),
+          response_format: ResponseFormatSchema,
+        })
+        .strict(),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ ad_account_id, limit, response_format }) => {
+      try {
+        const data = await client.get<MetaPaginatedResponse<Record<string, unknown>>>(
+          `/${ad_account_id}/ad_studies`,
+          {
+            fields: "id,name,description,start_time,end_time,type,results,cells",
+            limit,
+          }
+        );
+
+        if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
+          return { content: [{ type: "text", text: "No A/B tests found for this ad account." }] };
+        }
+
+        if (response_format === "json") {
+          return jsonDataResult(data);
         }
 
         const lines = [`# A/B Tests (${data.data.length})`, ""];
@@ -3045,6 +3200,9 @@ Returns lead data including field values, creation time, and ad info.`,
         }>>(`/${form_id}/leads`, pageToken, params);
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No leads found." }] };
         }
 
