@@ -285,7 +285,7 @@ Returns page details including name, category, description, follower counts, and
         openWorldHint: false,
       },
     },
-    async ({ page_id, response_format }) => {
+    async ({ page_id }) => {
       try {
         const page = await client.get<MetaPage>(`/${page_id}`, {
           fields: PAGE_FIELDS,
@@ -1644,13 +1644,15 @@ Args:
     async ({ post_id, response_format }) => {
       try {
         const reactionTypes = ["LIKE", "LOVE", "HAHA", "WOW", "SAD", "ANGRY"];
+        const pageId = post_id.match(/^(\d+)_\d+$/)?.[1];
+        const pageToken = pageId ? client.requirePageToken(pageId) : undefined;
         const results = await Promise.all(
-          reactionTypes.map((type) =>
-            client.get<{ summary: { total_count: number } }>(
-              `/${post_id}/reactions`,
-              { type, summary: "total_count", limit: 0 }
-            )
-          )
+          reactionTypes.map((type) => {
+            const requestParams = { type, summary: "total_count", limit: 0 };
+            return pageToken
+              ? client.getWithToken<{ summary: { total_count: number } }>(`/${post_id}/reactions`, pageToken, requestParams)
+              : client.get<{ summary: { total_count: number } }>(`/${post_id}/reactions`, requestParams);
+          })
         );
         const counts: Record<string, number> = {};
         reactionTypes.forEach((type, i) => {
@@ -2984,13 +2986,12 @@ Returns: Greeting text, ice breakers, get-started payload, persistent menu, comm
         openWorldHint: false,
       },
     },
-    async ({ page_id }) => {
+    async ({ page_id, response_format }) => {
       try {
         const pageToken = client.requirePageToken(page_id);
         const data = await client.getWithToken<MessengerProfileResponse>("/me/messenger_profile", pageToken, {
           fields: MESSENGER_PROFILE_FIELDS,
         });
-
         return { content: [{ type: "text", text: truncate(formatMessengerProfileSummary(page_id, data), "automated responses") }] };
       } catch (error) {
         return errorResult(error);
