@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MetaApiClient } from "../services/api.js";
-import { errorResult, truncate, truncateField, formatNumber, formatDate, buildPaginationNote, ResponseFormatSchema } from "../services/utils.js";
+import { errorResult, truncate, truncateField, formatNumber, formatDate, buildPaginationNote, ResponseFormatSchema, jsonDataResult } from "../services/utils.js";
 import {
   PAGE_FAN_DEMOGRAPHICS_DEFAULT_METRICS,
   PAGE_FIELDS,
@@ -85,6 +85,16 @@ type MessengerProfileSettings = {
 type MessengerProfileResponse = MessengerProfileSettings & {
   data?: MessengerProfileSettings[];
 };
+
+function redactPageAccessToken<T extends MetaPage>(page: T): Omit<T, "access_token"> {
+  const safePage = { ...page };
+  delete (safePage as Partial<MetaPage>).access_token;
+  return safePage;
+}
+
+function isActiveCta(cta: { status?: string }): boolean {
+  return cta.status === undefined || ["ACTIVE", "ENABLED", "LIVE"].includes(cta.status.toUpperCase());
+}
 
 function describeMessengerMenuItem(item: MessengerProfileMenuItem): string {
   const title = item.title ?? item.type ?? "Untitled item";
@@ -210,6 +220,9 @@ Tip: The page tokens are cached automatically. You do not need to manage them ma
         });
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No pages found for this account." }] };
         }
 
@@ -219,10 +232,10 @@ Tip: The page tokens are cached automatically. You do not need to manage them ma
           }
         }
 
+        const safePages = data.data.map(redactPageAccessToken);
+
         if (response_format === "json") {
-          return {
-            content: [{ type: "text", text: JSON.stringify(data.data, null, 2) }],
-          };
+          return jsonDataResult(data, safePages);
         }
 
         const lines = [
@@ -1313,6 +1326,9 @@ Args:
         }>>(`/${page_id}/scheduled_posts`, pageToken, params);
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No scheduled posts found." }] };
         }
 
@@ -1479,6 +1495,8 @@ Args:
       title: "Get Page Tagged Posts",
       description: `Gets posts that tag this Facebook Page.
 
+Requires Meta App Review approval for Page Public Content Access on many apps; if unapproved, Meta returns a permission/app-review error rather than data.
+
 Args:
   - page_id (string): Facebook Page ID
   - limit (number): Max results (1–100, default 20)`,
@@ -1605,6 +1623,8 @@ Args:
     {
       title: "Get Post Reactions",
       description: `Gets reaction counts (like, love, haha, wow, sad, angry) on a post.
+
+Requires the post to be visible to the token and may require Page Public Content Access or a Page token for Page-owned posts.
 
 Args:
   - post_id (string): Post ID`,
@@ -1789,6 +1809,8 @@ Args:
       title: "Get Visitor Posts",
       description: `Gets posts published by visitors on the Facebook Page wall.
 
+Requires Meta App Review approval for Page Public Content Access on many apps; if unapproved, Meta returns a permission/app-review error rather than data.
+
 Args:
   - page_id (string): Facebook Page ID
   - limit (number): Max results (1–100, default 20)`,
@@ -1923,6 +1945,9 @@ Args:
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No blocked users." }] };
         }
 
@@ -1985,6 +2010,8 @@ Args:
       title: "Get Page Tabs",
       description: `Lists custom tabs on a Facebook Page.
 
+Requires Meta App Review approval for Page Public Content Access on many apps; if unapproved, Meta returns a permission/app-review error rather than data.
+
 Args:
   - page_id (string): Facebook Page ID`,
       inputSchema: z
@@ -2008,6 +2035,9 @@ Args:
         }> }>(`/${page_id}/tabs`, pageToken, {});
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No tabs found." }] };
         }
 
@@ -2074,6 +2104,8 @@ Args:
     {
       title: "Get Single Post Details",
       description: `Gets detailed information about a specific Facebook post.
+
+Requires the post to be visible to the token and may require Meta App Review approval for Page Public Content Access for public Page posts.
 
 Args:
   - post_id (string): Post ID (format: {page_id}_{post_id})`,
@@ -2244,14 +2276,17 @@ Args:
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No CTA configured." }] };
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          return jsonDataResult(data, data.data.filter(isActiveCta).slice(0, 1));
         }
 
-        const cta = data.data[0];
+        const cta = data.data.find(isActiveCta) ?? data.data[0];
         return {
           content: [{
             type: "text",
@@ -2821,7 +2856,7 @@ Returns live video details including title, status, views, and creation time.`,
           fields: "id,title,status,embed_html,live_views,planned_start_time,creation_time",
           limit,
         };
-        if (broadcast_status) params.broadcast_status = broadcast_status;
+        if (broadcast_status) params.broadcast_status = [broadcast_status];
         if (after) params.after = after;
 
         const data = await client.getWithToken<MetaPaginatedResponse<{
@@ -2839,6 +2874,9 @@ Returns live video details including title, status, views, and creation time.`,
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No live videos found." }] };
         }
 

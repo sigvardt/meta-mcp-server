@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MetaApiClient } from "../services/api.js";
-import { errorResult, truncate, truncateField, formatNumber, formatDate, buildPaginationNote, ResponseFormatSchema } from "../services/utils.js";
+import { errorResult, truncate, truncateField, formatNumber, formatDate, buildPaginationNote, ResponseFormatSchema, jsonDataResult } from "../services/utils.js";
 import { IG_ACCOUNT_FIELDS, IG_MEDIA_FIELDS } from "../constants.js";
 import {
   InstagramAccount,
@@ -72,6 +72,9 @@ Returns: Instagram account IDs, usernames, follower counts. The account ID is ne
         }
 
         if (!accounts.length) {
+          if (response_format === "json") {
+            return jsonDataResult({}, accounts);
+          }
           return {
             content: [
               {
@@ -83,7 +86,7 @@ Returns: Instagram account IDs, usernames, follower counts. The account ID is ne
         }
 
         if (response_format === "json") {
-          return { content: [{ type: "text", text: JSON.stringify(accounts, null, 2) }] };
+          return jsonDataResult({}, accounts);
         }
 
         const lines = [`# Instagram Business Accounts (${accounts.length})`, ""];
@@ -999,7 +1002,7 @@ Note: Limited to 30 unique hashtag searches per 7 days per IG account.`,
 Uses the Business Discovery API — no follow/connection required.
 
 Args:
-  - ig_account_id (string): Your Instagram account ID (for auth)
+  - ig_account_id (string): Your Instagram professional account ID used as the authenticated Business Discovery viewer, not the target account
   - username (string): Instagram username to look up (without @)
 
 Returns: Bio, follower/following counts, media count, profile picture, and recent media.`,
@@ -1506,6 +1509,9 @@ Args:
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No live media found." }] };
         }
 
@@ -1552,6 +1558,9 @@ Args:
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No product tags on this media." }] };
         }
 
@@ -1666,7 +1675,7 @@ Args:
   - limit (number): Max conversations (1–100, default 20)
   - after (string, optional): Pagination cursor
 
-Requires instagram_manage_messages permission. Uses user token (not page token).`,
+Requires instagram_manage_messages permission and Meta App Review approval for Instagram messaging access. Uses user token (not page token).`,
       inputSchema: z
         .object({
           ig_account_id: z.string().describe("Instagram account ID"),
@@ -1695,6 +1704,9 @@ Requires instagram_manage_messages permission. Uses user token (not page token).
         }>>(`/${ig_account_id}/conversations`, params);
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: `No conversations found in ${folder}.` }] };
         }
 
@@ -1736,7 +1748,9 @@ Args:
   - limit (number): Max messages (1–100, default 20)
   - after (string, optional): Pagination cursor
 
-Messages are returned in reverse chronological order from the API and displayed in chronological order.`,
+Messages are returned in reverse chronological order from the API and displayed in chronological order.
+
+Requires instagram_manage_messages permission and Meta App Review approval for Instagram messaging access.`,
       inputSchema: z
         .object({
           conversation_id: z.string().describe("Conversation ID"),
@@ -1764,6 +1778,9 @@ Messages are returned in reverse chronological order from the API and displayed 
         }>>(`/${conversation_id}/messages`, params);
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No messages in this conversation." }] };
         }
 
@@ -2170,6 +2187,9 @@ Requires: instagram_shopping_tag_products permission.`,
         );
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: "No catalogs available for Instagram Shopping on this account." }] };
         }
 
@@ -2227,6 +2247,9 @@ Returns: Matching products that can be tagged in Instagram posts.`,
         });
 
         if (!data.data?.length) {
+          if (response_format === "json") {
+            return jsonDataResult(data);
+          }
           return { content: [{ type: "text", text: `No products found for "${q}".` }] };
         }
 

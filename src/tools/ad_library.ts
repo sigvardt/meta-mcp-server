@@ -25,7 +25,7 @@ Args:
 
 Returns: Ad creatives, spend ranges, impressions, demographics, and targeting info.
 
-Note: Requires a valid access token but does NOT require ad account ownership.`,
+Note: Requires a valid access token but does NOT require ad account ownership. Meta may still require the app to have the Ad Library API / ads_archive feature approved in App Review; unapproved apps receive permission errors.`,
       inputSchema: z
         .object({
           ad_reached_countries: z
