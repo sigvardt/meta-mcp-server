@@ -1,7 +1,7 @@
 {
-  "name": "@oliverames/meta-mcp-server",
-  "version": "2.0.2",
-  "description": "The most comprehensive MCP server for Meta Business Suite — 199 tools across Facebook Pages, Instagram, Threads, Ads Manager, Commerce, Conversions API, and more",
+  "name": "@sigvardt/meta-mcp-server",
+  "version": "2.1.0",
+  "description": "The most comprehensive MCP server for Meta Business Suite — 200+ tools across Facebook Pages, Instagram, Threads, Ads Manager, Commerce, Conversions API, and more",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -14,6 +14,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:live": "node scripts/live-acid-test.mjs",
@@ -23,10 +24,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/oliverames/meta-mcp-server.git"
+    "url": "git+https://github.com/sigvardt/meta-mcp-server.git"
   },
   "license": "MIT",
-  "author": "Oliver Ames",
+  "author": "sigvardt",
+  "bugs": {
+    "url": "https://github.com/sigvardt/meta-mcp-server/issues"
+  },
+  "homepage": "https://github.com/sigvardt/meta-mcp-server#readme",
   "keywords": [
     "mcp",
     "meta",
