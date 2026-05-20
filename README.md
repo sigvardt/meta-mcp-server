@@ -81,17 +81,17 @@ npm install && npm run build
 
 ## Security & Sandbox
 
-This fork enforces a **business-id allowlist** on every Meta Graph API call. By default it is locked to Dynamic Retail ApS (`833812607571849`); override via the `META_ALLOWED_BUSINESS_IDS` environment variable.
+This fork can enforce a **business-id allowlist** on Meta Graph API calls. By default `META_ALLOWED_BUSINESS_IDS` is optional and unset means all reachable Meta business resources are allowed.
 
 ### `META_ALLOWED_BUSINESS_IDS`
 
-Comma-separated list of business IDs the server is allowed to touch. At startup, the `BusinessAuthorizationService` fetches each business's owned/client ad accounts, pages, Instagram accounts, pixels, product catalogs, and system users — those IDs form the allowlist. Subsequent API calls are checked against the allowlist before any HTTP request leaves the process.
+Optional comma-separated list of business IDs the server is allowed to touch. If unset or empty, the business authorization gate runs unrestricted and allows all resource IDs visible to the provided Meta token. If set, startup fetches each business's owned/client ad accounts, pages, Instagram accounts, pixels, product catalogs, and system users — those IDs form the allowlist. Subsequent API calls are checked against the allowlist before any HTTP request leaves the process.
 
 ```bash
-# Default (Dynamic Retail only):
-# META_ALLOWED_BUSINESS_IDS unset → 833812607571849
+# Default: unrestricted
+# META_ALLOWED_BUSINESS_IDS unset → allow all resource IDs visible to META_ACCESS_TOKEN
 
-# Override with multiple businesses:
+# Restrict to one or more businesses:
 export META_ALLOWED_BUSINESS_IDS=833812607571849,1234567890123456
 ```
 
